@@ -15,9 +15,9 @@ Canonical worker instructions and Inspector cards are in the private [MG8 Model 
 | ID | Decision | Recommendation |
 |---|---|---|
 | D0 | Model objective | Deterministic NYCH encoder plus tiny decoder-only causal LM predicting next NYCH token/symbol sequence; keep assurance representation separate from probabilistic output. |
-| D1 | Language/context | English V1; 1,024 model tokens per window; split longer accepted inputs into ordered windows. |
+| D1 | Language/context | English-only V1; 1,024 model tokens per window; split longer accepted inputs into ordered windows. | Language approved; context pending |
 | D2 / B2 | Tokenizer | Byte-level BPE, 8,192 vocabulary, no normalization, byte offsets, explicit special-token registry. |
-| D3 / B3 | Word trace | SHA-256 per word occurrence followed by consonant skeleton; decide exact vowel set, case, repeated-consonant handling, delimiters, and occurrence identity. Domain stays a separate B4 field. |
+| D3 / B3 | Word trace | Per-word occurrence ID with the supplied consonant-skeleton suffix; English V1; accent-fold the suffix only and preserve source text. Domain stays separate for B4. | Partial: English and suffix accent-fold approved; exact hash inputs, separators, and domain binding pending |
 | D4 / B4 | Domain resolver | Versioned local associative lexicon only, no LLM calls; ranked evidence, multi-label ambiguity, UNKNOWN fallback. Owner approves seed lexicon and thresholds. |
 | D5 / B5 | NYCH semantics | Canonical NYCH operators; preserve negation, modality, quantifiers, roles, and observation/belief/intention/action distinctions. |
 | D6 / B6 | Embeddings/position | d_model 128, learned embeddings, RoPE, 1,024 context, float32 reference build. |
