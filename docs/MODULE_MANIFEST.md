@@ -3,8 +3,8 @@
 | Builder | Module | Source location | State |
 |---|---|---|---|
 | B1 | Ingest | `src/nych_language_model/pipeline/ingest.py` | Candidate present; owner policy approved; independent Inspector 1 review pending |
-| B2 | Tokenization | `src/nych_language_model/pipeline/tokenization.py` | Awaiting D0–D2 |
-| B3 | Trace identity | `src/nych_language_model/pipeline/trace_identity.py` | Awaiting D3 |
+| B2 | Tokenization | `src/nych_language_model/pipeline/tokenization.py` | English V1 approved; awaiting D0/D2 |
+| B3 | Trace identity | `src/nych_language_model/pipeline/trace_identity.py` | English/accent-folded suffix approved; trace-ID assembly decisions remain open |
 | B4 | Domain resolution | `src/nych_language_model/pipeline/domain_resolution.py` | Awaiting D4 |
 | B5 | NYCH symbolization | `src/nych_language_model/pipeline/nych_symbolization.py` | Awaiting D5 |
 | B6 | Embeddings and position | `src/nych_language_model/model/embeddings.py` | Awaiting D0, D1, D2, D5, D6 |
