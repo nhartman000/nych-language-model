@@ -1,8 +1,10 @@
 import unittest
+from hashlib import sha256
 
 from nych_language_model.pipeline.trace_identity import (
     accent_fold_english_suffix,
     emoji_skeleton_display,
+    word_occurrence_sha256,
 )
 
 
@@ -50,6 +52,39 @@ class TraceIdentitySuffixTests(unittest.TestCase):
             emoji_skeleton_display("Chinchilla", "🦫⚔️", inventory)
         with self.assertRaises(ValueError):
             emoji_skeleton_display("Chinchilla", "🦫🏻", inventory)
+
+    def test_occurrence_hash_matches_versioned_binary_contract(self):
+        source_digest = "ab" * 32
+        payload = (
+            b"NYCH-WORD-ID\x00v1\x00"
+            + bytes.fromhex(source_digest)
+            + (3).to_bytes(8, "big")
+            + (12).to_bytes(8, "big")
+            + (21).to_bytes(8, "big")
+        )
+        expected = sha256(payload).hexdigest()
+        actual = word_occurrence_sha256(source_digest, 3, 12, 21)
+        self.assertEqual(actual, expected)
+        self.assertEqual(len(actual), 64)
+        self.assertEqual(actual, word_occurrence_sha256(source_digest.upper(), 3, 12, 21))
+
+    def test_occurrence_hash_changes_for_occurrence_and_span(self):
+        digest = "ab" * 32
+        baseline = word_occurrence_sha256(digest, 0, 0, 4)
+        self.assertNotEqual(baseline, word_occurrence_sha256(digest, 1, 0, 4))
+        self.assertNotEqual(baseline, word_occurrence_sha256(digest, 0, 1, 5))
+        self.assertNotEqual(baseline, word_occurrence_sha256("cd" * 32, 0, 0, 4))
+
+    def test_occurrence_hash_validates_digest_and_byte_span(self):
+        valid = "ab" * 32
+        with self.assertRaises(ValueError):
+            word_occurrence_sha256("not-a-digest", 0, 0, 1)
+        with self.assertRaises(ValueError):
+            word_occurrence_sha256(valid, 0, 2, 2)
+        with self.assertRaises(ValueError):
+            word_occurrence_sha256(valid, -1, 0, 1)
+        with self.assertRaises(TypeError):
+            word_occurrence_sha256(valid, True, 0, 1)
 
 
 if __name__ == "__main__":
