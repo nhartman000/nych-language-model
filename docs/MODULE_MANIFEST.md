@@ -4,7 +4,7 @@
 |---|---|---|---|
 | B1 | Ingest | `src/nych_language_model/pipeline/ingest.py` | Candidate present; owner policy approved; independent Inspector 1 review pending |
 | B2 | Tokenization | `src/nych_language_model/pipeline/tokenization.py` | English V1 approved; awaiting D0/D2 |
-| B3 | Trace identity | `src/nych_language_model/pipeline/trace_identity.py` | SHA-256 occurrence payload, suffix, and canonical ID serialization implemented; 14 focused tests pass; independent re-inspection pending; exact-input digest and token-span consistency are integration checks |
+| B3 | Trace identity | `src/nych_language_model/pipeline/trace_identity.py` | Bounded B3 module PASS; Inspector 3 independently verified 14/14 focused tests. Integration must verify exact B1 digest provenance and B2 zero-based indices/half-open UTF-8 byte spans. B4 domain assignment is separate. |
 | B4 | Domain resolution | `src/nych_language_model/pipeline/domain_resolution.py` | Awaiting D4 |
 | B5 | NYCH symbolization | `src/nych_language_model/pipeline/nych_symbolization.py` | Awaiting D5 |
 | B6 | Embeddings and position | `src/nych_language_model/model/embeddings.py` | Awaiting D0, D1, D2, D5, D6 |
