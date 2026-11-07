@@ -27,8 +27,17 @@ def accent_fold_english_suffix(word: str) -> str:
         raise ValueError("word must not be empty")
 
     decomposed = unicodedata.normalize("NFKD", word).lower()
-    unaccented = "".join(ch for ch in decomposed if not unicodedata.combining(ch))
-    ascii_word = "".join(ch for ch in unaccented if ch.isascii() and ch.isalnum())
+    ascii_word: list[str] = []
+    for ch in decomposed:
+        if unicodedata.combining(ch):
+            continue
+        if ch.isascii() and ch.isalnum():
+            ascii_word.append(ch)
+            continue
+        # Never silently drop a letter that cannot be accent-folded to ASCII.
+        if ch.isalpha():
+            raise ValueError(f"unsupported non-English suffix character: {ch!r}")
+        # Punctuation and symbols delimit word content; they are not suffix units.
     if not ascii_word:
         raise ValueError("word must contain English letters or digits")
 
@@ -65,4 +74,8 @@ def emoji_skeleton_display(
     if emoji not in allowed:
         raise ValueError("selected_emoji is not an exact approved inventory entry")
 
-    return f"{emoji}_{accent_fold_english_suffix(word)}"
+    suffix = accent_fold_english_suffix(word)
+    # Keep the machine value empty for all-vowel words; use an explicit display
+    # marker so the suffix's absence is visible and cannot be confused with a
+    # missing delimiter or truncated result.
+    return f"{emoji}_{suffix if suffix else '∅'}"
