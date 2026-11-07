@@ -61,6 +61,7 @@ B3 owns the deterministic trace ID. The trace includes the approved SHA-256 iden
 The following remain subject to separate owner approval before implementation is considered complete:
 
 - exact `.gst` schema, field names, versioning, and serialization;
+- GST-producing module ownership and the interface relationship among GST construction, B4 domain resolution, and B5 symbolization.
 - deterministic extraction rules and evidence/unknown representation;
 - canonical modality operator inventory and how sensory/mental perspective is encoded;
 - symbol-selection request/response schema, including word alignment and abstention;
