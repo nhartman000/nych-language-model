@@ -32,6 +32,17 @@ class TraceIdentitySuffixTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             accent_fold_english_suffix("東京")
 
+    def test_unfoldable_latin_letters_fail_closed(self):
+        for word in ("æther", "cœur", "smørrebrød", "Łódź"):
+            with self.subTest(word=word), self.assertRaisesRegex(
+                ValueError, "unsupported non-English suffix character"
+            ):
+                accent_fold_english_suffix(word)
+
+    def test_all_vowel_word_has_empty_structured_suffix_and_visible_marker(self):
+        self.assertEqual(accent_fold_english_suffix("aeiou"), "")
+        self.assertEqual(emoji_skeleton_display("aeiou", "🦫", ("🦫",)), "🦫_∅")
+
     def test_exact_inventory_emoji_required(self):
         inventory = ("🦫", "⚔️")
         self.assertEqual(emoji_skeleton_display("Chinchilla", "🦫", inventory), "🦫_chnchl")
