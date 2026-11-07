@@ -1,8 +1,8 @@
 """Builder 3 candidate: word-occurrence digest and English suffix derivation.
 
-This module computes the approved SHA-256 material and the derived suffix/display
-component. Final ID serialization and domain binding remain separate decisions.
-Source text is never modified or retained by these functions.
+This module computes the approved SHA-256 material, suffix, and canonical B3
+trace-ID serialization. Domain assignment remains a separate B4 field. Source
+text is never modified or retained by these functions.
 """
 
 from __future__ import annotations
@@ -57,6 +57,26 @@ def word_occurrence_sha256(
         + byte_end.to_bytes(8, "big")
     )
     return sha256(payload).hexdigest()
+
+
+def format_trace_id(digest_hex: str, suffix: str) -> str:
+    """Serialize the B3 ID as ``sha256:<digest>_<suffix-or-∅>``.
+
+    The empty suffix stays empty in structured data and uses the explicit
+    ``∅`` marker only in this display string. Domain is intentionally not part
+    of the B3 ID; B4 supplies it as a separate field.
+    """
+    if (
+        not isinstance(digest_hex, str)
+        or len(digest_hex) != 64
+        or any(ch not in "0123456789abcdef" for ch in digest_hex)
+    ):
+        raise ValueError("digest_hex must be 64 lowercase hexadecimal characters")
+    if not isinstance(suffix, str):
+        raise TypeError("suffix must be str")
+    if any(ch not in "abcdefghijklmnopqrstuvwxyz0123456789" for ch in suffix):
+        raise ValueError("suffix must contain only lowercase ASCII letters and digits")
+    return f"sha256:{digest_hex}_{suffix if suffix else '∅'}"
 
 
 def accent_fold_english_suffix(word: str) -> str:
