@@ -1,69 +1,63 @@
-# NYCH GST Context and Symbolization Flow — V1
+# NYCH GST Context, Lookup, and Symbolization Flow — V1
 
 ## Status
 
-Owner-provided architecture direction recorded. This document states the intended flow and module boundaries; it does not freeze the detailed GST schema, extraction algorithms, prompt wire format, or full emoji inventory.
+Owner-approved architecture: GST assembly and symbol selection are separate modules; the first symbol-selection call receives both request-scoped GST and the complete natural-language prompt. A deterministic database lookup occurs as domain/action information is identified. If there is no matching record, the first symbol-selection call resolves the missing entry dynamically under invariant constraints.
 
-## Purpose
+The detailed GST schema, lookup endpoint/store, evidence format, symbol-selection wire schema, and database write/verification policy remain open. This records architecture; it does not claim implementation.
 
-NYCH derives structured context from the user's natural-language prompt before symbol selection. A request-scoped global gestalt context artifact, called the global `.gst`, carries the inferred structure and meaning into the first symbol-selection LLM call. The LLM receives that context together with the separate, complete natural-language prompt.
+## Processing model
 
-The GST guides the selection of canonical emoji gestalts for words. Lexical databases, n-gram statistics, and proper-name records may provide spelling or candidate evidence; they do not replace GST-based contextual interpretation or decide emoji meaning by themselves.
+1. B1 ingests the exact prompt; B2 supplies token boundaries and source spans; B3 supplies trace identity; B4 resolves domain evidence using its approved local lexicon and no LLM calls.
+2. As domains and actions are identified, B5 checks the versioned action/domain database. Existing entries are retrieved deterministically and assembled into request-scoped global `.gst`.
+3. B5 records whether information came from a database entry, explicit evidence, or remains unknown. It does not invent a cache-miss record.
+4. The first B6 symbol-selection LLM call receives the assembled `.gst` and separate complete prompt. It uses existing entries; if an action/domain record is absent, it resolves the missing context/gestalt dynamically during the call, constrained by invariant TOTE and modality rules.
+5. The intended database coverage grows over time so deterministic lookup can serve more domain/action combinations. Validation, approval, persistence, conflict handling, and versioning of new entries are not yet decided.
 
-## Required GST content
+Known records are looked up before the call; missing records are handled during it. B4 remains a deterministic, no-LLM domain resolver.
 
-The global `.gst` represents the hierarchy:
+## GST structure and invariants
+
+The global `.gst` represents:
 
 `domain → subdomain → sub-subdomain → function → technique → TOTE loop`
 
-A TOTE loop means Test–Operate–Test–Exit. Each loop contains at least:
+A TOTE loop means Test–Operate–Test–Exit and has at least one actor, one action, one object or tool, and one modality operator. These are invariants, not optional fields to guess or omit.
 
-- one actor;
-- one action;
-- one object or tool; and
-- one modality operator.
+The modality operator comes from the fixed NYCH inventory and expresses supported sensory or mental perspective, including internal/external sensing and mental actions such as remembering or imagining. Exact catalog and serialization remain to be specified.
 
-The modality operator identifies the relevant sensory or mental perspective, including internal or external sensing and mental actions such as remembering or imagining.
+Other supported context includes narrative perspective and tense, subject–predicate and related semantic roles, temporal intervals, and relationships. Distinguish sourced facts, deterministic database results, dynamic call results, and unknowns. Never promote unsupported inference to fact.
 
-The GST also carries, where supported by the prompt:
+## Symbol selection
 
-- narrative perspective and tense;
-- subject–predicate and related grammatical/semantic roles;
-- temporal intervals; and
-- relationships among the extracted structures.
+The first symbol-selection call has two separate inputs:
 
-Missing or unsupported information remains unknown; the extractor must not invent it.
+- request-scoped global `.gst`, including database matches and explicit unknown/cache-miss markers; and
+- the separate complete natural-language prompt.
 
-## First symbol-selection call
+The call uses domain/action context to select canonical emoji gestalts only where the mapping is faithful. Words without a faithful mapping remain literal. Preserve NYCH operators, negation, modality, quantifiers, roles, and observation/belief/intention/action distinctions. Follow the versioned inventory and interface; do not add arbitrary or unregistered emoji.
 
-The first symbol-selection LLM call receives both:
+B3 trace identity remains separate from vocabulary token IDs and selected emoji. Apply its approved SHA-256 identity and derived suffix idempotently.
 
-1. the request's global `.gst` context; and
-2. the separate, complete natural-language prompt.
+## Module boundaries
 
-Using both sources, it selects the best canonical emoji gestalt for each word that can be represented faithfully in context. If no faithful emoji gestalt exists, preserve the word literally. The output must follow the versioned symbol-selection interface and emoji inventory; it must not add arbitrary text or unregistered emoji.
+- B2 supplies source spans and token boundaries; it does not choose gestalts.
+- B3 creates trace identity; it does not infer meaning.
+- B4 resolves domain evidence locally without LLM calls.
+- B5 owns deterministic action/domain lookup and request-scoped GST assembly. It records provenance and cache misses.
+- B6 owns the first symbol-selection call, using B5 context and the separate prompt; it handles missing entries dynamically under the invariants.
+- New database-entry approval, validation, persistence, conflict resolution, and versioning must be defined before write-back is enabled.
 
-## Trace identity
-
-B3 owns the deterministic trace ID. The trace includes the approved SHA-256 identity and the derived word suffix formed by accent-folding to the approved English V1 form, removing vowels, and collapsing adjacent repeated consonants. Add the suffix only if it has not already been included; repeated processing must not append it twice. Trace identity remains separate from model vocabulary token IDs and from the selected emoji gestalt.
-
-## Boundaries and data handling
-
-- B2 preserves source text and byte spans and supplies token boundaries; it does not choose emoji gestalts.
-- B3 generates the trace identity and derived suffix; it does not infer a word's meaning.
-- B4 performs local domain resolution under its separate approved contract; the GST hierarchy does not turn B4 into an LLM-based domain resolver.
-- B5 consumes approved GST and token interfaces for context-guided symbolization.
-- Raw prompt text remains request-memory-only and must not be persisted or written to QSON. Treat the GST as request-scoped derived context under the same data-handling boundary unless a separate persistence policy is approved.
-- The GST context and full natural-language prompt remain distinct inputs in the symbol-selection call.
+Raw prompt and GST are request-scoped. Never persist raw prompts or write them to QSON. Do not persist GST unless separately approved.
 
 ## Open interface decisions
 
-The following remain subject to separate owner approval before implementation is considered complete:
-
-- exact `.gst` schema, field names, versioning, and serialization;
-- GST-producing module ownership and the interface relationship among GST construction, B4 domain resolution, and B5 symbolization.
-- deterministic extraction rules and evidence/unknown representation;
-- canonical modality operator inventory and how sensory/mental perspective is encoded;
-- symbol-selection request/response schema, including word alignment and abstention;
-- complete canonical emoji inventory and alias rules; and
-- runtime ownership and calling interface for the first symbol-selection LLM call.
+- exact `.gst` schema, fields, versioning, and serialization;
+- database schema, data source/provenance model, lookup endpoint, and versioning;
+- cache-miss and unknown representation;
+- database write-back, validation, conflict, and approval policy;
+- exact invariant TOTE and modality catalogs and representation;
+- evidence/confidence rules and distinction between database result and model inference;
+- symbol-selection request/response schema, word alignment, and abstention;
+- complete canonical emoji inventory/aliases; and
+- runtime ownership/calling interface for the first symbol-selection LLM call.
