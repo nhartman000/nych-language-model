@@ -4,6 +4,7 @@ from hashlib import sha256
 from nych_language_model.pipeline.trace_identity import (
     accent_fold_english_suffix,
     emoji_skeleton_display,
+    format_trace_id,
     word_occurrence_sha256,
 )
 
@@ -85,6 +86,19 @@ class TraceIdentitySuffixTests(unittest.TestCase):
             word_occurrence_sha256(valid, -1, 0, 1)
         with self.assertRaises(TypeError):
             word_occurrence_sha256(valid, True, 0, 1)
+
+    def test_canonical_trace_id_format(self):
+        digest = "a1" * 32
+        self.assertEqual(format_trace_id(digest, "chnchl"), f"sha256:{digest}_chnchl")
+        self.assertEqual(format_trace_id(digest, ""), f"sha256:{digest}_∅")
+
+    def test_trace_id_format_rejects_noncanonical_fields(self):
+        with self.assertRaises(ValueError):
+            format_trace_id("A1" * 32, "chnchl")
+        with self.assertRaises(ValueError):
+            format_trace_id("a1" * 32, "bad_suffix")
+        with self.assertRaises(ValueError):
+            format_trace_id("a1" * 32, "∅")
 
 
 if __name__ == "__main__":
