@@ -197,13 +197,27 @@ BEGIN
 END;
 
 CREATE TRIGGER IF NOT EXISTS trg_loop_admission_validate_update
-BEFORE UPDATE OF admission_status, origin, human_review_status ON loop_admission
+BEFORE UPDATE OF admission_status, origin, human_review_status, verified_loop_sha256 ON loop_admission
 WHEN NEW.admission_status = 'ADMITTED' AND (
-    NOT EXISTS (SELECT 1 FROM loop_validation_runs v WHERE v.loop_id = NEW.loop_id AND v.result = 'PASS')
-    OR (NEW.origin = 'HOW_TO_EXTRACTED' AND NEW.human_review_status <> 'APPROVED')
+    NEW.verified_loop_sha256 IS NULL
+    OR NOT EXISTS (
+        SELECT 1 FROM loop_validation_runs v
+        WHERE v.loop_id = NEW.loop_id AND v.result = 'PASS'
+          AND v.loop_sha256 = NEW.verified_loop_sha256
+          AND v.validation_id = (SELECT v2.validation_id FROM loop_validation_runs v2 WHERE v2.loop_id = NEW.loop_id ORDER BY v2.validated_at DESC, v2.validation_id DESC LIMIT 1)
+    )
+    OR (NEW.origin = 'HOW_TO_EXTRACTED' AND (
+        NEW.human_review_status <> 'APPROVED'
+        OR NOT EXISTS (
+            SELECT 1 FROM loop_human_reviews r
+            WHERE r.loop_id = NEW.loop_id AND r.outcome = 'APPROVED'
+              AND r.loop_sha256 = NEW.verified_loop_sha256
+              AND r.review_id = (SELECT r2.review_id FROM loop_human_reviews r2 WHERE r2.loop_id = NEW.loop_id ORDER BY r2.reviewed_at DESC, r2.review_id DESC LIMIT 1)
+        )
+    ))
 )
 BEGIN
-    SELECT RAISE(ABORT, 'admission requires passing automatic validation and required human review');
+    SELECT RAISE(ABORT, 'admission requires latest passing validation and required human review for the exact loop digest');
 END;
 
 CREATE TRIGGER IF NOT EXISTS trg_taxonomy_edges_no_update
