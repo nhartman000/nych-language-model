@@ -8,8 +8,8 @@ Status: implementation candidate; awaiting independent Inspector review. No self
 - `_verified_hit()` requires `ADMITTED` plus matching stored digest/version, and also checks the latest PASS validation and any required latest human review against a freshly recomputed digest.
 - Lookup selection, digest recomputation, verification, and returned GST payload assembly run inside one SQLite savepoint/read snapshot.
 - Canonical digest assembly requires every base and proposal payload table; any missing canonical table fails closed.
-- V1 conservatively requires a latest matching APPROVED human review for every origin (`SEED`, `HOW_TO_EXTRACTED`, `OTHER`, or unknown). A narrower origin allowlist requires a later owner decision.
-- `tests/test_gst_context.py`: thirteen focused `unittest` checks including each missing canonical table, all-origin review gates, stale admission digest/version, rejected latest review, ambiguous matches, partial migration, digest and UTF-8 decode failures.
+- Origin policy follows the approved admission design: `HUMAN_AUTHORED` requires matching admission and latest PASS validation, with no separate review; `HOW_TO_EXTRACTED` additionally requires latest matching APPROVED human review. `SEED`, `OTHER`, and unknown origins fail closed until their policy is approved.
+- `tests/test_gst_context.py`: thirteen focused `unittest` checks including each missing canonical table, supported/unsupported origin review gates, stale admission digest/version, rejected latest review, ambiguous matches, partial migration, digest and UTF-8 decode failures.
 
 Raw prompts are not accepted or stored. The module performs no database writes and does not make a live search request. Search results and extracted loops remain in-memory candidates.
 
@@ -30,5 +30,5 @@ Raw prompts are not accepted or stored. The module performs no database writes a
 
 Generated after implementation; SHA-256 covers exact UTF-8 file bytes.
 
-- `src/nych_language_model/pipeline/gst_context.py`: `c7b1e72444a3b9013f9e3e9203565be8d509144963f715224abb8aa8b47ab25f`
-- `tests/test_gst_context.py`: `408108d857d5a4a7fab25657dbe2f1abe8c9d8d8b581f30cdfc86022b13b2e6f`
+- `src/nych_language_model/pipeline/gst_context.py`: `c5901c00aa06d6d798f1f5e685702edc633584c404eef4105e7c2a2c7e74c229`
+- `tests/test_gst_context.py`: `175c4a7450f950b62244163b6e8989bc6aa24806a45dac358da0ade9755c7b0e`
