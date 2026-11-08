@@ -29,7 +29,7 @@ Use foreign keys and uniqueness constraints for identifiers and relationships. S
 2. If taxonomy is missing, Google search supplies candidate subdomains, sub-subdomains, functions, and techniques. Store source URL, query, retrieval time, and evidence/hash. The exact source-ranking and acceptance rule remains an owner decision.
 3. How-to text may yield technique and TOTE-loop candidates. Keep these as candidates until a human validates them; retain source provenance.
 4. The future web form looks up the hierarchy and technique, lets the contributor choose registered modality operators and enter loop action text (plus required actor/object-or-tool details), then records the submission as human-authored.
-5. Run automatic structural and invariant checks. A passing check means the record conforms to the declared schema and NYCH/TOTE invariants; it does not prove every action description is factually correct. Record the validator version, individual check results, and digest.
+5. Run automatic structural and invariant checks. A passing check means the record conforms to the declared schema and NYCH/TOTE invariants; it does not prove every action description is factually correct. The trusted B5 lookup/write service must recompute the versioned canonical digest on every hit and require it to match the latest PASS validation and any required human review; the status column alone is never a pass signal. Record the validator version, individual check results, and digest.
 6. A known action under a known domain is served by deterministic database lookup. On a miss, B6 resolves the missing selection during the first symbol-selection call under the invariant TOTE and modality rules. Do not persist a newly resolved entry until its admission/write policy is approved.
 
 ## Automatic verification checks
@@ -51,7 +51,7 @@ How-to-derived candidates additionally require an approved human review record b
 - Canonical normalization and deterministic action matching key.
 - Whether action/role fields belong in a dedicated relation or a revised `tote_steps` interface in a later schema version.
 - Contributor identity and privacy model for the web interface.
-- Versioned validator rules, failure behavior, and who may admit a passing entry.
+- Versioned validator rules, failure behavior, canonical digest projection/serialization, and who may admit a passing entry.
 - Runtime adapter/API endpoint and database write permissions.
 
 ## Compatibility requirement
