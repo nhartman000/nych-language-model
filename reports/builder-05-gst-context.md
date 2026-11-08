@@ -7,15 +7,17 @@ Status: implementation candidate; awaiting independent Inspector review. No self
 - `src/nych_language_model/pipeline/gst_context.py`: read-only SQLite adapter, literal exact domain/action lookup, request-scoped GST payload, canonical `NYCH-TOTE-LOOP-DIGEST-V1` recomputation, latest PASS validation and required latest human-review checks, explicit B6 cache-miss handoff, Google search provider protocol with provenance-bearing candidates, and a how-to loop wrapper that remains `PENDING_HUMAN_REVIEW`.
 - `_verified_hit()` requires `ADMITTED` plus matching stored digest/version, and also checks the latest PASS validation and any required latest human review against a freshly recomputed digest.
 - Lookup selection, digest recomputation, verification, and returned GST payload assembly run inside one SQLite savepoint/read snapshot.
-- `tests/test_gst_context.py`: twelve focused `unittest` checks including candidate/rejected admission, stale admission digest/version, rejected latest review, ambiguous matches, partial migration, digest and UTF-8 decode failures.
+- Canonical digest assembly requires every base and proposal payload table; any missing canonical table fails closed.
+- V1 conservatively requires a latest matching APPROVED human review for every origin (`SEED`, `HOW_TO_EXTRACTED`, `OTHER`, or unknown). A narrower origin allowlist requires a later owner decision.
+- `tests/test_gst_context.py`: thirteen focused `unittest` checks including each missing canonical table, all-origin review gates, stale admission digest/version, rejected latest review, ambiguous matches, partial migration, digest and UTF-8 decode failures.
 
 Raw prompts are not accepted or stored. The module performs no database writes and does not make a live search request. Search results and extracted loops remain in-memory candidates.
 
 ## Checks
 
-`PYTHONPATH=src python -m unittest tests.test_gst_context -v` — 12 focused tests passed.
+`PYTHONPATH=src python -m unittest tests.test_gst_context -v` — 13 focused tests passed.
 
-`PYTHONPATH=src python -m unittest discover -s tests -v` — 32 tests passed (12 Builder 5 plus 20 existing tests).
+`PYTHONPATH=src python -m unittest discover -s tests -v` — 33 tests passed (13 Builder 5 plus 20 existing tests).
 
 ## Contract boundaries and blockers
 
@@ -28,5 +30,5 @@ Raw prompts are not accepted or stored. The module performs no database writes a
 
 Generated after implementation; SHA-256 covers exact UTF-8 file bytes.
 
-- `src/nych_language_model/pipeline/gst_context.py`: `6eb904cd2db7cc81592ee38ae104e5dccd2a8e34a32164263b2efec6a3ed3d38`
-- `tests/test_gst_context.py`: `5353153d78d22aaff6404175031ca3f56bbc232523f99f8c93aaad7e449b22b4`
+- `src/nych_language_model/pipeline/gst_context.py`: `c7b1e72444a3b9013f9e3e9203565be8d509144963f715224abb8aa8b47ab25f`
+- `tests/test_gst_context.py`: `408108d857d5a4a7fab25657dbe2f1abe8c9d8d8b581f30cdfc86022b13b2e6f`
