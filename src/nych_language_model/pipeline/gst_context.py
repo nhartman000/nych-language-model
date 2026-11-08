@@ -52,6 +52,15 @@ def _validate_context_inputs(narrative: Mapping[str, Any] | None, provenance: Se
             raise ValueError("narrative requires perspective, tense, subject, predicate, intervals")
         if not isinstance(narrative["intervals"], list):
             raise ValueError("narrative intervals must be a list")
+        for interval in narrative["intervals"]:
+            required_interval = {"kind", "start", "end", "duration"}
+            if not isinstance(interval, Mapping) or set(interval) != required_interval:
+                raise ValueError("each interval requires kind, start, end, and duration")
+            if interval["kind"] not in {"POINT", "RANGE", "DURATION"}:
+                raise ValueError("interval kind must be POINT, RANGE, or DURATION")
+            for key in ("start", "end", "duration"):
+                if interval[key] is not None and not isinstance(interval[key], str):
+                    raise ValueError(f"interval {key} must be text or null")
         for key in ("perspective", "tense", "subject", "predicate"):
             if narrative[key] is not None and not isinstance(narrative[key], str):
                 raise ValueError(f"narrative {key} must be text or null")
@@ -65,7 +74,9 @@ def _validate_context_inputs(narrative: Mapping[str, Any] | None, provenance: Se
         digest = item["source_digest"]
         if not isinstance(digest, str) or len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
             raise ValueError("provenance source_digest must be lowercase SHA-256")
-        if not isinstance(item["byte_start"], int) or not isinstance(item["byte_end"], int) or not 0 <= item["byte_start"] < item["byte_end"]:
+        if (not isinstance(item["byte_start"], int) or isinstance(item["byte_start"], bool)
+                or not isinstance(item["byte_end"], int) or isinstance(item["byte_end"], bool)
+                or not 0 <= item["byte_start"] < item["byte_end"]):
             raise ValueError("provenance requires a non-empty half-open byte span")
         if item["epistemic_status"] not in {"explicit", "inferred", "predicted"}:
             raise ValueError("invalid provenance epistemic_status")
