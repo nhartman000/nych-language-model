@@ -8,6 +8,7 @@ content digest and matching the latest validation and any required review.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from contextlib import contextmanager
 from hashlib import sha256
 import json
 import sqlite3
@@ -94,6 +95,21 @@ def _tables(conn: sqlite3.Connection) -> set[str]:
         row[0]
         for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
     }
+
+
+@contextmanager
+def _read_snapshot(conn: sqlite3.Connection):
+    """Keep match selection, digest verification, and GST assembly in one snapshot."""
+    name = "nych_b5_read_snapshot"
+    conn.execute(f"SAVEPOINT {name}")
+    try:
+        yield
+    except BaseException:
+        conn.execute(f"ROLLBACK TO SAVEPOINT {name}")
+        conn.execute(f"RELEASE SAVEPOINT {name}")
+        raise
+    else:
+        conn.execute(f"RELEASE SAVEPOINT {name}")
 
 
 def _dict_rows(conn: sqlite3.Connection, sql: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
@@ -295,11 +311,18 @@ def _verified_hit(conn: sqlite3.Connection, loop_id: str, *, schema_version: str
     if not {"loop_admission", "loop_validation_runs", "loop_human_reviews"} <= tables:
         return False, digest, "VALIDATION_SCHEMA_UNAVAILABLE"
     admission = conn.execute(
-        "SELECT origin FROM loop_admission WHERE loop_id=?", (loop_id,)
+        "SELECT origin,admission_status,verified_loop_sha256,verified_digest_version "
+        "FROM loop_admission WHERE loop_id=?", (loop_id,)
     ).fetchone()
     validation = _latest_validation(conn, loop_id)
-    if admission is None or validation is None:
-        return False, digest, "NO_ADMISSION_OR_VALIDATION"
+    if admission is None:
+        return False, digest, "NO_ADMISSION"
+    if admission[1] != "ADMITTED":
+        return False, digest, "NOT_ADMITTED"
+    if admission[2] != digest or admission[3] != DIGEST_VERSION:
+        return False, digest, "ADMISSION_DIGEST_DOES_NOT_MATCH"
+    if validation is None:
+        return False, digest, "NO_VALIDATION"
     if validation["result"] != "PASS" or validation["loop_sha256"] != digest or validation["digest_version"] != DIGEST_VERSION:
         return False, digest, "LATEST_VALIDATION_DOES_NOT_MATCH"
     if admission[0] == "HOW_TO_EXTRACTED":
@@ -330,25 +353,26 @@ def lookup_loop(
     tables = _tables(conn)
     if "tote_loop_elements" not in tables:
         return GSTContext("CACHE_MISS", domain, action, None, None, DIGEST_VERSION, "ACTION_INDEX_UNAVAILABLE")
-    matches = _dict_rows(
-        conn,
-        "SELECT DISTINCT l.loop_id FROM tote_loops l JOIN tote_loop_elements e USING(loop_id) "
-        "WHERE l.domain=? AND e.element_role='ACTION' AND e.element_text=? ORDER BY l.loop_id",
-        (domain, action),
-    )
-    if not matches:
-        return GSTContext("CACHE_MISS", domain, action, None, None, DIGEST_VERSION, "NO_EXACT_MATCH")
-    if len(matches) != 1:
-        return GSTContext("CACHE_MISS", domain, action, None, None, DIGEST_VERSION, "AMBIGUOUS_EXACT_MATCH")
-    loop_id = matches[0]["loop_id"]
     try:
-        valid, digest, reason = _verified_hit(conn, loop_id, schema_version=schema_version)
-    except (GSTContractError, KeyError, sqlite3.DatabaseError):
+        with _read_snapshot(conn):
+            matches = _dict_rows(
+                conn,
+                "SELECT DISTINCT l.loop_id FROM tote_loops l JOIN tote_loop_elements e USING(loop_id) "
+                "WHERE l.domain=? AND e.element_role='ACTION' AND e.element_text=? ORDER BY l.loop_id",
+                (domain, action),
+            )
+            if not matches:
+                return GSTContext("CACHE_MISS", domain, action, None, None, DIGEST_VERSION, "NO_EXACT_MATCH")
+            if len(matches) != 1:
+                return GSTContext("CACHE_MISS", domain, action, None, None, DIGEST_VERSION, "AMBIGUOUS_EXACT_MATCH")
+            loop_id = matches[0]["loop_id"]
+            valid, digest, reason = _verified_hit(conn, loop_id, schema_version=schema_version)
+            if not valid:
+                return GSTContext("CACHE_MISS", domain, action, None, digest, DIGEST_VERSION, reason)
+            payload = canonical_loop_payload(conn, loop_id, schema_version=schema_version)
+            return GSTContext("HIT", domain, action, payload, digest, DIGEST_VERSION)
+    except (GSTContractError, KeyError, sqlite3.Error, TypeError, ValueError, OverflowError, UnicodeError):
         return GSTContext("CACHE_MISS", domain, action, None, None, DIGEST_VERSION, "DIGEST_RECOMPUTATION_FAILED")
-    if not valid:
-        return GSTContext("CACHE_MISS", domain, action, None, digest, DIGEST_VERSION, reason)
-    payload = canonical_loop_payload(conn, loop_id, schema_version=schema_version)
-    return GSTContext("HIT", domain, action, payload, digest, DIGEST_VERSION)
 
 
 def request_gst(
