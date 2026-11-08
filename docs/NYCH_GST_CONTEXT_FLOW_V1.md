@@ -46,7 +46,7 @@ The planned web interface is a human contribution path, not a replacement for th
 - B2 supplies source spans and token boundaries; it does not choose gestalts.
 - B3 creates trace identity; it does not infer meaning.
 - B4 resolves domain evidence locally without LLM calls.
-- B5 owns deterministic lookup against current TOTE records, Google-search taxonomy enrichment with source provenance, and request-scoped GST assembly. It routes how-to-derived loop candidates for human validation and supports the future auto-verified human contribution workflow.
+- B5 owns deterministic lookup against current TOTE records, Google-search taxonomy enrichment with source provenance, and request-scoped GST assembly. The trusted runtime recomputes the canonical loop digest on every hit; status alone never licenses a hit. It routes how-to-derived loop candidates for human validation and supports the future auto-verified human contribution workflow.
 - B6 owns the first symbol-selection call, using B5 context and the separate prompt; it handles missing entries dynamically under the invariants.
 - New database-entry approval, validation, persistence, conflict resolution, and versioning must be defined before write-back is enabled.
 
@@ -57,7 +57,7 @@ Raw prompt and GST are request-scoped. Never persist raw prompts or write them t
 - exact `.gst` schema, fields, versioning, and serialization;
 - current schema source: `T.O.T.E-loops/schema.sql`; runtime adapter/endpoint and versioning;
 - cache-miss and unknown representation;
-- database write-back, validation, conflict, and approval policy;
+- trusted lookup/write boundary: never accept `admission_status` alone; recompute a versioned canonical digest at lookup and compare with the latest PASS validation and any required human review;\n- database write-back, validation, conflict, and approval policy;
 - exact invariant TOTE and modality catalogs and representation;
 - evidence/confidence rules and distinction between database result and model inference;
 - symbol-selection request/response schema, word alignment, and abstention;
