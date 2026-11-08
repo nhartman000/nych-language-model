@@ -57,7 +57,7 @@ Raw prompt and GST are request-scoped. Never persist raw prompts or write them t
 - exact `.gst` schema, fields, versioning, and serialization;
 - current schema source: `T.O.T.E-loops/schema.sql`; runtime adapter/endpoint and versioning;
 - cache-miss and unknown representation;
-- trusted lookup/write boundary: never accept `admission_status` alone; recompute a versioned canonical digest at lookup and compare with the latest PASS validation and any required human review;
+- trusted lookup/write boundary: never accept `admission_status` alone; recompute `NYCH-TOTE-LOOP-DIGEST-V1` at lookup and compare the digest and version with the latest PASS validation and any required human review;
 - database write-back, validation, conflict, and approval policy;
 - exact invariant TOTE and modality catalogs and representation;
 - evidence/confidence rules and distinction between database result and model inference;
