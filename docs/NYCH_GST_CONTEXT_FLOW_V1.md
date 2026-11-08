@@ -39,7 +39,9 @@ The call uses domain/action context to select canonical emoji gestalts only wher
 
 B3 trace identity remains separate from vocabulary token IDs and selected emoji. Apply its approved SHA-256 identity and derived suffix idempotently.
 
-## Future loop-authoring interface\n\nThe planned web interface is a human contribution path, not a replacement for the how-to extraction/review path. It looks up the selected domain hierarchy and techniques, then accepts modality operators from a dropdown and action text from the contributor. The system automatically verifies submitted records for structural completeness, registered modality operators, proposition/provenance consistency, valid TOTE transitions and exit conditions, and database integrity. Human authorship and automated verification status are recorded separately. These checks establish structural/invariant conformance, not factual correctness of every action description.\n\n## Module boundaries
+## Future loop-authoring interface
+
+The planned web interface is a human contribution path, not a replacement for the how-to extraction/review path. It looks up the selected domain hierarchy and techniques, then accepts modality operators from a dropdown and action text from the contributor. The system automatically verifies submitted records for structural completeness, registered modality operators, proposition/provenance consistency, valid TOTE transitions and exit conditions, and database integrity. Human authorship and automated verification status are recorded separately. These checks establish structural/invariant conformance, not factual correctness of every action description.\n\n## Module boundaries
 
 - B2 supplies source spans and token boundaries; it does not choose gestalts.
 - B3 creates trace identity; it does not infer meaning.
