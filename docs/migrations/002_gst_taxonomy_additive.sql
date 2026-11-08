@@ -139,6 +139,27 @@ BEGIN
 END;
 
 -- Admission requires a passing automatic validation record; how-to-derived loops also require human review.
+CREATE TRIGGER IF NOT EXISTS trg_loop_admission_validate_insert
+BEFORE INSERT ON loop_admission
+WHEN NEW.admission_status = 'ADMITTED' AND (
+    NOT EXISTS (SELECT 1 FROM loop_validation_runs v WHERE v.loop_id = NEW.loop_id AND v.result = 'PASS')
+    OR (NEW.origin = 'HOW_TO_EXTRACTED' AND NEW.human_review_status <> 'APPROVED')
+)
+BEGIN
+    SELECT RAISE(ABORT, 'admission requires passing automatic validation and required human review');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_loop_admission_validate_update
+BEFORE UPDATE OF admission_status, origin, human_review_status ON loop_admission
+WHEN NEW.admission_status = 'ADMITTED' AND (
+    NOT EXISTS (SELECT 1 FROM loop_validation_runs v WHERE v.loop_id = NEW.loop_id AND v.result = 'PASS')
+    OR (NEW.origin = 'HOW_TO_EXTRACTED' AND NEW.human_review_status <> 'APPROVED')
+)
+BEGIN
+    SELECT RAISE(ABORT, 'admission requires passing automatic validation and required human review');
+END;
+
+-- The application validator must recompute the loop digest before each admission.
 CREATE VIEW IF NOT EXISTS gst_loop_invariant_summary AS
 SELECT
     l.loop_id,
