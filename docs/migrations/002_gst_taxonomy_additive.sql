@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS taxonomy_edges (
     parent_node_id TEXT NOT NULL REFERENCES taxonomy_nodes(node_id) ON DELETE CASCADE,
     child_node_id TEXT NOT NULL REFERENCES taxonomy_nodes(node_id) ON DELETE CASCADE,
     relation_type TEXT NOT NULL CHECK (relation_type IN ('CONTAINS','COMMONALITY')),
-    source_id TEXT,
+    source_id TEXT REFERENCES taxonomy_sources(source_id) ON DELETE RESTRICT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (parent_node_id, child_node_id, relation_type),
     CHECK (parent_node_id <> child_node_id)
@@ -138,7 +138,7 @@ BEGIN
     SELECT RAISE(ABORT, 'loop taxonomy role does not match taxonomy node type');
 END;
 
--- Read-only summary for the runtime verifier. Aggregate requirements are checked by validator code.
+-- Admission requires a passing automatic validation record; how-to-derived loops also require human review.
 CREATE VIEW IF NOT EXISTS gst_loop_invariant_summary AS
 SELECT
     l.loop_id,
