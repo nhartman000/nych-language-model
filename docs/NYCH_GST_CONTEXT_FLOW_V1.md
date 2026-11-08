@@ -9,10 +9,10 @@ The source schema is now identified at `nhartman000/T.O.T.E-loops/schema.sql`. I
 ## Processing model
 
 1. B1 ingests the exact prompt; B2 supplies token boundaries and source spans; B3 supplies trace identity; B4 resolves domain evidence using its approved local lexicon and no LLM calls.
-2. As domains/actions are identified, B5 checks the TOTE database deterministically. The current schema exposes `tote_loops.domain`; action text is represented in `tote_steps.plain_text` and `tote_steps.nych_text`, with modality/proposition/provenance fields on steps. Existing matching records are assembled into request-scoped global `.gst`.
-3. B5 records whether information came from a database entry, explicit evidence, or remains unknown. The existing schema has no dedicated action key, nor separate subdomain/function/technique, actor, or object/tool tables. B5 must not manufacture those fields; preserve unavailable values as unresolved unless another approved source provides them.
-4. The first B6 symbol-selection LLM call receives the assembled `.gst` and separate complete prompt. It uses existing entries; if an action/domain record is absent, it resolves the missing context/gestalt dynamically during the call, constrained by invariant TOTE and modality rules.
-5. The intended database coverage grows over time so deterministic lookup can serve more domain/action combinations. The current schema's exact matching rule and schema extensions for normalized action keys and full GST hierarchy remain undecided. Validation, approval, persistence, conflict handling, and versioning of new entries are also open.
+2. Once B4 identifies a domain, B5 checks existing TOTE records deterministically. The current schema exposes `tote_loops.domain`; action text is represented in `tote_steps.plain_text`/`nych_text`, with modality/proposition/provenance fields on steps. Existing matching records are assembled into request-scoped global `.gst`.
+3. B5 enriches the identified domain hierarchy through Google search for applicable subdomains, sub-subdomains, functions, and techniques, retaining source provenance. The current SQLite schema has no dedicated hierarchy/action/actor/object fields, so search-derived taxonomy is tracked separately until a versioned schema mapping or extension is approved.
+4. Techniques may be extracted from how-to texts into loop candidates. A human validates these candidates before canonical admission. Existing TOTE records remain deterministic; if no record exists for the action under that domain, the first B6 symbol-selection call resolves the missing context/gestalt dynamically under invariant TOTE and modality rules.
+5. Database coverage grows as reviewed material and human contributions are admitted. A future web interface will let contributors select domain/subdomain/sub-subdomain/function/technique from dropdowns, choose modality operators from a dropdown, and type action descriptions. Contributions are human-authored and then automatically verified against schema constraints and NYCH/TOTE invariants before admission. Exact matching rules, schema extensions, verifier suite, persistence, conflict handling, and versioning remain open.
 
 Known records are looked up before the call; missing records are handled during it. B4 remains a deterministic, no-LLM domain resolver.
 
@@ -39,12 +39,12 @@ The call uses domain/action context to select canonical emoji gestalts only wher
 
 B3 trace identity remains separate from vocabulary token IDs and selected emoji. Apply its approved SHA-256 identity and derived suffix idempotently.
 
-## Module boundaries
+## Future loop-authoring interface\n\nThe planned web interface is a human contribution path, not a replacement for the how-to extraction/review path. It looks up the selected domain hierarchy and techniques, then accepts modality operators from a dropdown and action text from the contributor. The system automatically verifies submitted records for structural completeness, registered modality operators, proposition/provenance consistency, valid TOTE transitions and exit conditions, and database integrity. Human authorship and automated verification status are recorded separately. These checks establish structural/invariant conformance, not factual correctness of every action description.\n\n## Module boundaries
 
 - B2 supplies source spans and token boundaries; it does not choose gestalts.
 - B3 creates trace identity; it does not infer meaning.
 - B4 resolves domain evidence locally without LLM calls.
-- B5 owns deterministic lookup against the current TOTE SQLite/JSON schema and request-scoped GST assembly. It records provenance and cache misses; absent schema fields remain unresolved.
+- B5 owns deterministic lookup against current TOTE records, Google-search taxonomy enrichment with source provenance, and request-scoped GST assembly. It routes how-to-derived loop candidates for human validation and supports the future auto-verified human contribution workflow.
 - B6 owns the first symbol-selection call, using B5 context and the separate prompt; it handles missing entries dynamically under the invariants.
 - New database-entry approval, validation, persistence, conflict resolution, and versioning must be defined before write-back is enabled.
 
