@@ -15,9 +15,9 @@ Reference source: [`nhartman000/T.O.T.E-loops/schema.sql`](https://github.com/nh
 | `taxonomy_sources` | Search, how-to, seed, and human-submission provenance | `source_id`, `source_type`, `source_url`, `title`, `search_query`, `retrieved_at`, `content_sha256`, `rights_note` |
 | `taxonomy_node_sources` | Evidence links for taxonomy nodes | `node_id`, `source_id`, `evidence_note` |
 | `loop_taxonomy` | Connect reusable TOTE loops to domain and technique nodes | `loop_id`, `node_id`, `relationship_role` |
-| `tote_step_roles` | Represent the required actor/action/object-or-tool elements without changing positional inserts into existing `tote_steps` | `loop_id`, `step_index`, `actor_text`, `action_text`, `object_tool_text`; modality continues to reference `modality_operators` through `tote_steps.operator_id` |
-| `loop_admission` | Distinguish seed, extracted, and human-authored entries and their review/verification state | `loop_id`, `origin`, `admission_status`, `contributor_ref`, `human_review_ref` |
-| `loop_validation_runs` | Auditable automatic checks | `validation_id`, `loop_id`, `validator_version`, `result`, `checks_json`, `loop_digest`, `validated_at` |
+| `tote_loop_elements` | Represent actor/action/object/tool elements without changing positional inserts into existing `tote_steps` | `loop_id`, `element_role`, `element_index`, `element_text`, optional `normalized_key`, optional `step_index`; modality continues to reference `modality_operators` through `tote_steps.operator_id` |
+| `loop_admission` | Distinguish seed, extracted, and human-authored entries and their review/verification state | `loop_id`, `origin`, `human_review_status`, `admission_status`, `contributor_ref` |
+| `loop_human_reviews` | Human review record for how-to-derived loop candidates | `review_id`, `loop_id`, `source_id`, `reviewer_ref`, `outcome`, `review_note`, `reviewed_at` |\n| `loop_validation_runs` | Auditable automatic checks | `validation_id`, `loop_id`, `validator_version`, `result`, `checks_json`, `loop_sha256`, `validated_at` |
 
 Use foreign keys and uniqueness constraints for identifiers and relationships. Search-result metadata and hashes should be retained; full source text need not be copied into the database. Existing `tote_loops.domain` and `tote_steps` remain readable during transition.
 
@@ -34,13 +34,13 @@ Use foreign keys and uniqueness constraints for identifiers and relationships. S
 
 - Referential integrity and valid, acyclic `CONTAINS` hierarchy edges.
 - Required hierarchy node types and loop-to-technique/domain links.
-- At least one actor, action, object or tool, and valid registered modality operator for each admitted loop.
+- At least one actor, action, object or tool element, and valid registered modality operator for each admitted loop.
 - Valid TOTE step phases and in-loop transition targets; an explicit exit predicate and bounded iteration count.
 - Consistency among modality operator, proposition kind, and provenance; never promote intention/execution/prediction to observation.
 - Required provenance and a stable content digest for extracted or search-derived records.
 - Deterministic validation output tied to the exact loop digest.
 
-How-to-derived candidates additionally require a human review record before canonical admission. Human-authored entries are labeled as such; automatic verification does not masquerade as human validation.
+How-to-derived candidates additionally require an approved human review record before canonical admission. Human-authored entries require a passing automatic validation record before admission; automatic verification does not masquerade as human validation. The migration's admission triggers enforce these admission prerequisites, while the runtime validator must recompute the loop digest before admission.
 
 ## Decisions still open
 
