@@ -85,7 +85,7 @@ CREATE TABLE IF NOT EXISTS loop_admission (
 
 CREATE TABLE IF NOT EXISTS loop_human_reviews (
     review_id TEXT PRIMARY KEY,
-    loop_id TEXT NOT NULL REFERENCES tote_loops(loop_id) ON DELETE CASCADE,
+    loop_id TEXT NOT NULL REFERENCES tote_loops(loop_id) ON DELETE RESTRICT,
     source_id TEXT REFERENCES taxonomy_sources(source_id) ON DELETE RESTRICT,
     reviewer_ref TEXT NOT NULL,
     loop_sha256 TEXT NOT NULL CHECK (length(loop_sha256) = 64 AND loop_sha256 NOT GLOB '*[^0-9a-f]*'),
@@ -97,7 +97,7 @@ CREATE INDEX IF NOT EXISTS idx_loop_human_reviews_loop ON loop_human_reviews(loo
 
 CREATE TABLE IF NOT EXISTS loop_validation_runs (
     validation_id TEXT PRIMARY KEY,
-    loop_id TEXT NOT NULL REFERENCES tote_loops(loop_id) ON DELETE CASCADE,
+    loop_id TEXT NOT NULL REFERENCES tote_loops(loop_id) ON DELETE RESTRICT,
     validator_version TEXT NOT NULL,
     result TEXT NOT NULL CHECK (result IN ('PASS','FAIL','ERROR')),
     checks_json TEXT NOT NULL,
@@ -304,7 +304,13 @@ AFTER INSERT ON loop_human_reviews BEGIN
 END;
 
 CREATE TRIGGER IF NOT EXISTS trg_loop_validation_runs_record_state
-AFTER INSERT ON loop_validation_runs WHEN NEW.result <> 'PASS' BEGIN
+AFTER INSERT ON loop_validation_runs
+WHEN NEW.result <> 'PASS' OR EXISTS (
+    SELECT 1 FROM loop_admission a
+    WHERE a.loop_id=NEW.loop_id AND a.admission_status='ADMITTED'
+      AND a.verified_loop_sha256 <> NEW.loop_sha256
+)
+BEGIN
     UPDATE loop_admission SET admission_status='CANDIDATE', verified_loop_sha256=NULL, updated_at=CURRENT_TIMESTAMP
     WHERE loop_id=NEW.loop_id;
 END;
