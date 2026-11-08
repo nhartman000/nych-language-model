@@ -204,13 +204,15 @@ BEGIN
 END;
 
 CREATE TRIGGER IF NOT EXISTS trg_loop_admission_validate_update
-BEFORE UPDATE OF loop_id, admission_status, origin, human_review_status, verified_loop_sha256 ON loop_admission
+BEFORE UPDATE OF loop_id, admission_status, origin, human_review_status, verified_loop_sha256, verified_digest_version ON loop_admission
 WHEN NEW.admission_status = 'ADMITTED' AND (
     NEW.verified_loop_sha256 IS NULL
+    OR NEW.verified_digest_version IS NULL
     OR NOT EXISTS (
         SELECT 1 FROM loop_validation_runs v
         WHERE v.loop_id = NEW.loop_id AND v.result = 'PASS'
           AND v.loop_sha256 = NEW.verified_loop_sha256
+          AND v.digest_version = NEW.verified_digest_version
           AND v.validation_id = (SELECT v2.validation_id FROM loop_validation_runs v2 WHERE v2.loop_id = NEW.loop_id ORDER BY v2.validated_at DESC, v2.validation_id DESC LIMIT 1)
     )
     OR (NEW.origin = 'HOW_TO_EXTRACTED' AND (
@@ -219,6 +221,7 @@ WHEN NEW.admission_status = 'ADMITTED' AND (
             SELECT 1 FROM loop_human_reviews r
             WHERE r.loop_id = NEW.loop_id AND r.outcome = 'APPROVED'
               AND r.loop_sha256 = NEW.verified_loop_sha256
+              AND r.digest_version = NEW.verified_digest_version
               AND r.review_id = (SELECT r2.review_id FROM loop_human_reviews r2 WHERE r2.loop_id = NEW.loop_id ORDER BY r2.reviewed_at DESC, r2.review_id DESC LIMIT 1)
         )
     ))
