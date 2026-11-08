@@ -90,7 +90,15 @@
         "intervals": {
           "type": "array",
           "items": {
-            "type": "object"
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "start", "end", "duration"],
+            "properties": {
+              "kind": {"enum": ["POINT", "RANGE", "DURATION"]},
+              "start": {"type": ["string", "null"]},
+              "end": {"type": ["string", "null"]},
+              "duration": {"type": ["string", "null"]}
+            }
           }
         }
       }
