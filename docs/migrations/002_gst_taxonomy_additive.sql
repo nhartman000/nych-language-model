@@ -197,7 +197,7 @@ BEGIN
 END;
 
 CREATE TRIGGER IF NOT EXISTS trg_loop_admission_validate_update
-BEFORE UPDATE OF admission_status, origin, human_review_status, verified_loop_sha256 ON loop_admission
+BEFORE UPDATE OF loop_id, admission_status, origin, human_review_status, verified_loop_sha256 ON loop_admission
 WHEN NEW.admission_status = 'ADMITTED' AND (
     NEW.verified_loop_sha256 IS NULL
     OR NOT EXISTS (
