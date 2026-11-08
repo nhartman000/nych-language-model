@@ -17,6 +17,23 @@ from typing import Any, Literal, Mapping, Protocol, Sequence
 
 DIGEST_VERSION = "NYCH-TOTE-LOOP-DIGEST-V1"
 DIGEST_PREFIX = b"NYCH-TOTE-LOOP-DIGEST\x00v1\x00"
+REVIEW_POLICY = "ALL_ORIGINS_REQUIRE_LATEST_APPROVAL"
+REQUIRED_PAYLOAD_TABLES = frozenset(
+    {
+        "tote_loops",
+        "tote_steps",
+        "loop_gestalts",
+        "gestalts",
+        "modality_operators",
+        "tote_loop_elements",
+        "loop_taxonomy",
+        "taxonomy_nodes",
+        "taxonomy_edges",
+        "taxonomy_node_sources",
+        "loop_sources",
+        "taxonomy_sources",
+    }
+)
 
 
 class GSTContractError(RuntimeError):
@@ -145,8 +162,7 @@ def canonical_loop_payload(
     if not isinstance(schema_version, str) or not schema_version.strip():
         raise ValueError("schema_version must be supplied by the trusted adapter")
     tables = _tables(conn)
-    required = {"tote_loops", "tote_steps", "loop_gestalts", "gestalts", "modality_operators"}
-    missing = required - tables
+    missing = REQUIRED_PAYLOAD_TABLES - tables
     if missing:
         raise GSTContractError(f"database is missing required TOTE tables: {', '.join(sorted(missing))}")
 
@@ -157,20 +173,14 @@ def canonical_loop_payload(
         raise GSTContractError("loop_id did not resolve to exactly one tote_loops row")
 
     steps = _dict_rows(conn, "SELECT * FROM tote_steps WHERE loop_id=? ORDER BY step_index", (loop_id,))
-    elements = (
-        _dict_rows(conn, "SELECT * FROM tote_loop_elements WHERE loop_id=? ORDER BY element_role,element_index", (loop_id,))
-        if "tote_loop_elements" in tables else []
-    )
-    loop_taxonomy = (
-        _dict_rows(conn, "SELECT * FROM loop_taxonomy WHERE loop_id=? ORDER BY relationship_role,node_id", (loop_id,))
-        if "loop_taxonomy" in tables else []
-    )
+    elements = _dict_rows(conn, "SELECT * FROM tote_loop_elements WHERE loop_id=? ORDER BY element_role,element_index", (loop_id,))
+    loop_taxonomy = _dict_rows(conn, "SELECT * FROM loop_taxonomy WHERE loop_id=? ORDER BY relationship_role,node_id", (loop_id,))
 
     # Find every linked taxonomy node and its full CONTAINS ancestor closure.
     linked_ids = {row["node_id"] for row in loop_taxonomy}
     node_ids = set(linked_ids)
     edges: list[dict[str, Any]] = []
-    if linked_ids and {"taxonomy_nodes", "taxonomy_edges"} <= tables:
+    if linked_ids:
         frontier = set(linked_ids)
         while frontier:
             marks = ",".join("?" for _ in frontier)
@@ -205,7 +215,7 @@ def canonical_loop_payload(
 
     nodes: list[dict[str, Any]] = []
     node_sources: list[dict[str, Any]] = []
-    if node_ids and "taxonomy_nodes" in tables:
+    if node_ids:
         marks = ",".join("?" for _ in node_ids)
         # Generated created_at/updated_at values do not contribute to semantic identity.
         nodes = _dict_rows(
@@ -214,17 +224,17 @@ def canonical_loop_payload(
             f"FROM taxonomy_nodes WHERE node_id IN ({marks}) ORDER BY node_id",
             tuple(sorted(node_ids)),
         )
-        if "taxonomy_node_sources" in tables:
-            node_sources = _dict_rows(
-                conn,
-                "SELECT node_id,source_id,evidence_note FROM taxonomy_node_sources "
-                f"WHERE node_id IN ({marks}) ORDER BY node_id,source_id",
-                tuple(sorted(node_ids)),
-            )
+        node_sources = _dict_rows(
+            conn,
+            "SELECT node_id,source_id,evidence_note FROM taxonomy_node_sources "
+            f"WHERE node_id IN ({marks}) ORDER BY node_id,source_id",
+            tuple(sorted(node_ids)),
+        )
 
-    loop_sources = (
-        _dict_rows(conn, "SELECT loop_id,source_id,source_role FROM loop_sources WHERE loop_id=? ORDER BY source_id,source_role", (loop_id,))
-        if "loop_sources" in tables else []
+    loop_sources = _dict_rows(
+        conn,
+        "SELECT loop_id,source_id,source_role FROM loop_sources WHERE loop_id=? ORDER BY source_id,source_role",
+        (loop_id,),
     )
     loop_gestalts = _dict_rows(
         conn,
@@ -254,7 +264,7 @@ def canonical_loop_payload(
     source_ids.update(r["source_id"] for r in node_sources)
     source_ids.update(r["source_id"] for r in edges if r.get("source_id") is not None)
     source_ids.update(r["source_id"] for r in elements if r.get("source_id") is not None)
-    sources = _source_rows(conn, source_ids) if "taxonomy_sources" in tables else []
+    sources = _source_rows(conn, source_ids)
 
     return {
         "schema_version": schema_version,
@@ -325,10 +335,12 @@ def _verified_hit(conn: sqlite3.Connection, loop_id: str, *, schema_version: str
         return False, digest, "NO_VALIDATION"
     if validation["result"] != "PASS" or validation["loop_sha256"] != digest or validation["digest_version"] != DIGEST_VERSION:
         return False, digest, "LATEST_VALIDATION_DOES_NOT_MATCH"
-    if admission[0] == "HOW_TO_EXTRACTED":
-        review = _latest_review(conn, loop_id)
-        if review is None or review["outcome"] != "APPROVED" or review["loop_sha256"] != digest or review["digest_version"] != DIGEST_VERSION:
-            return False, digest, "LATEST_HUMAN_REVIEW_DOES_NOT_MATCH"
+    # V1 uses the conservative policy that every origin, including unknown
+    # values, requires a latest matching human approval. Narrowing this is an
+    # owner decision and cannot be inferred from origin or admission status.
+    review = _latest_review(conn, loop_id)
+    if review is None or review["outcome"] != "APPROVED" or review["loop_sha256"] != digest or review["digest_version"] != DIGEST_VERSION:
+        return False, digest, "LATEST_HUMAN_REVIEW_DOES_NOT_MATCH"
     return True, digest, ""
 
 
