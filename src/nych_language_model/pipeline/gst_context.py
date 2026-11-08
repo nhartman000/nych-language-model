@@ -17,7 +17,10 @@ from typing import Any, Literal, Mapping, Protocol, Sequence
 
 DIGEST_VERSION = "NYCH-TOTE-LOOP-DIGEST-V1"
 DIGEST_PREFIX = b"NYCH-TOTE-LOOP-DIGEST\x00v1\x00"
-REVIEW_POLICY = "ALL_ORIGINS_REQUIRE_LATEST_APPROVAL"
+ORIGIN_POLICY = {
+    "HUMAN_AUTHORED": "PASS_VALIDATION_NO_REVIEW_REQUIRED",
+    "HOW_TO_EXTRACTED": "LATEST_MATCHING_APPROVED_REVIEW_REQUIRED",
+}
 REQUIRED_PAYLOAD_TABLES = frozenset(
     {
         "tote_loops",
@@ -335,12 +338,16 @@ def _verified_hit(conn: sqlite3.Connection, loop_id: str, *, schema_version: str
         return False, digest, "NO_VALIDATION"
     if validation["result"] != "PASS" or validation["loop_sha256"] != digest or validation["digest_version"] != DIGEST_VERSION:
         return False, digest, "LATEST_VALIDATION_DOES_NOT_MATCH"
-    # V1 uses the conservative policy that every origin, including unknown
-    # values, requires a latest matching human approval. Narrowing this is an
-    # owner decision and cannot be inferred from origin or admission status.
-    review = _latest_review(conn, loop_id)
-    if review is None or review["outcome"] != "APPROVED" or review["loop_sha256"] != digest or review["digest_version"] != DIGEST_VERSION:
-        return False, digest, "LATEST_HUMAN_REVIEW_DOES_NOT_MATCH"
+    origin = admission[0]
+    if origin == "HUMAN_AUTHORED":
+        pass  # The approved workflow requires automatic validation, not human review.
+    elif origin == "HOW_TO_EXTRACTED":
+        review = _latest_review(conn, loop_id)
+        if review is None or review["outcome"] != "APPROVED" or review["loop_sha256"] != digest or review["digest_version"] != DIGEST_VERSION:
+            return False, digest, "LATEST_HUMAN_REVIEW_DOES_NOT_MATCH"
+    else:
+        # SEED, OTHER, and future/unknown origins have no approved admission policy.
+        return False, digest, "UNSUPPORTED_ORIGIN"
     return True, digest, ""
 
 
