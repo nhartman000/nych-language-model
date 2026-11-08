@@ -1,6 +1,6 @@
 # Builder 5 Candidate Build Report — GST Context
 
-Status: implementation candidate; awaiting independent Inspector review. No self-approval.
+Status: PASS — independently inspected and integrated on `main` at `873f60093182c6bfc3f5a0dcc5ba28fb16e70c5e`. The candidate branch remains available for review history.
 
 ## Delivered
 
@@ -13,11 +13,13 @@ Status: implementation candidate; awaiting independent Inspector review. No self
 
 Raw prompts are not accepted or stored. The module performs no database writes and does not make a live search request. Search results and extracted loops remain in-memory candidates.
 
-## Checks
+## Independent review and checks
 
-`PYTHONPATH=src python -m unittest tests.test_gst_context -v` — 13 focused tests passed.
+Inspector 5 reviewed commit `873f60093182c6bfc3f5a0dcc5ba28fb16e70c5e`, verified the source and test blobs, and independently ran:
 
-`PYTHONPATH=src python -m unittest discover -s tests -v` — 33 tests passed (13 Builder 5 plus 20 existing tests).
+- `PYTHONPATH=src python -m unittest discover -s tests -v` — 33 tests passed.
+
+The builder also reported 13 focused tests passing on that commit.
 
 ## Contract boundaries and blockers
 
