@@ -16,7 +16,8 @@ Reference source: [`nhartman000/T.O.T.E-loops/schema.sql`](https://github.com/nh
 | `taxonomy_node_sources` | Evidence links for taxonomy nodes | `node_id`, `source_id`, `evidence_note` |
 | `loop_taxonomy` | Connect reusable TOTE loops to domain and technique nodes | `loop_id`, `node_id`, `relationship_role` |
 | `tote_loop_elements` | Represent actor/action/object/tool elements without changing positional inserts into existing `tote_steps` | `loop_id`, `element_role`, `element_index`, `element_text`, optional `normalized_key`, optional `step_index`; modality continues to reference `modality_operators` through `tote_steps.operator_id` |
-| `loop_sources` | Link loop records to source material and submissions | `loop_id`, `source_id`, `source_role` |\n| `loop_admission` | Distinguish seed, extracted, and human-authored entries and their review/verification state | `loop_id`, `origin`, `human_review_status`, `admission_status`, `contributor_ref`, `verified_loop_sha256` |
+| `loop_sources` | Link loop records to source material and submissions | `loop_id`, `source_id`, `source_role` | 
+| `loop_admission` | Distinguish seed, extracted, and human-authored entries and their review/verification state | `loop_id`, `origin`, `human_review_status`, `admission_status`, `contributor_ref`, `verified_loop_sha256` |
 | `loop_human_reviews` | Human review record for how-to-derived loop candidates | `review_id`, `loop_id`, `source_id`, `reviewer_ref`, `loop_sha256`, `outcome`, `review_note`, `reviewed_at` | 
 | `loop_validation_runs` | Auditable automatic checks | `validation_id`, `loop_id`, `validator_version`, `result`, `checks_json`, `loop_sha256`, `validated_at` |
 
