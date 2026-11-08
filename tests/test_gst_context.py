@@ -17,7 +17,7 @@ from nych_language_model.pipeline.gst_context import (
 SCHEMA_VERSION = "fixture-schema-v1"
 
 
-def database(*, origin="SEED", review=True, admission_status="ADMITTED", verified_digest=None, verified_version=DIGEST_VERSION):
+def database(*, origin="HUMAN_AUTHORED", review=True, admission_status="ADMITTED", verified_digest=None, verified_version=DIGEST_VERSION):
     conn = sqlite3.connect(":memory:")
     conn.executescript(
         """
@@ -106,25 +106,33 @@ class GSTContextTests(unittest.TestCase):
                 self.assertEqual(result.miss_reason, "ADMISSION_DIGEST_DOES_NOT_MATCH")
 
 
-    def test_latest_approved_review_is_required_for_every_origin(self):
-        for origin in ("SEED", "HOW_TO_EXTRACTED", "OTHER", "UNKNOWN_ORIGIN"):
-            with self.subTest(origin=origin):
-                conn = database(origin=origin, review=False)
-                result = lookup_loop(conn, domain="Maintenance", action="repair widget", schema_version=SCHEMA_VERSION)
-                self.assertEqual(result.status, "CACHE_MISS")
-                self.assertEqual(result.miss_reason, "LATEST_HUMAN_REVIEW_DOES_NOT_MATCH")
-
-        # Changing origin cannot bypass a missing review.
-        conn = database(origin="HOW_TO_EXTRACTED", review=False)
-        conn.execute("UPDATE loop_admission SET origin='SEED' WHERE loop_id='l1'")
-        conn.commit()
+    def test_origin_specific_review_policy(self):
+        human = database(origin="HUMAN_AUTHORED", review=False)
         self.assertEqual(
-            lookup_loop(conn, domain="Maintenance", action="repair widget", schema_version=SCHEMA_VERSION).miss_reason,
-            "LATEST_HUMAN_REVIEW_DOES_NOT_MATCH",
+            lookup_loop(human, domain="Maintenance", action="repair widget", schema_version=SCHEMA_VERSION).status,
+            "HIT",
         )
 
+        how_to_missing = database(origin="HOW_TO_EXTRACTED", review=False)
+        missing_result = lookup_loop(how_to_missing, domain="Maintenance", action="repair widget", schema_version=SCHEMA_VERSION)
+        self.assertEqual(missing_result.status, "CACHE_MISS")
+        self.assertEqual(missing_result.miss_reason, "LATEST_HUMAN_REVIEW_DOES_NOT_MATCH")
+        how_to_approved = database(origin="HOW_TO_EXTRACTED", review=True)
+        self.assertEqual(
+            lookup_loop(how_to_approved, domain="Maintenance", action="repair widget", schema_version=SCHEMA_VERSION).status,
+            "HIT",
+        )
+
+        for origin in ("SEED", "OTHER", "UNKNOWN_ORIGIN"):
+            for has_review in (False, True):
+                with self.subTest(origin=origin, has_review=has_review):
+                    conn = database(origin=origin, review=has_review)
+                    result = lookup_loop(conn, domain="Maintenance", action="repair widget", schema_version=SCHEMA_VERSION)
+                    self.assertEqual(result.status, "CACHE_MISS")
+                    self.assertEqual(result.miss_reason, "UNSUPPORTED_ORIGIN")
+
     def test_latest_rejected_human_review_invalidates_earlier_approval(self):
-        for origin in ("HOW_TO_EXTRACTED", "OTHER", "UNKNOWN_ORIGIN"):
+        for origin in ("HOW_TO_EXTRACTED",):
             with self.subTest(origin=origin):
                 conn = database(origin=origin)
                 digest = loop_digest(conn, "l1", schema_version=SCHEMA_VERSION)
