@@ -1,5 +1,7 @@
 import sqlite3
 import unittest
+import json
+from pathlib import Path
 
 
 from nych_language_model.pipeline.gst_context import (
@@ -14,11 +16,10 @@ from nych_language_model.pipeline.gst_context import (
 )
 
 
-SCHEMA_VERSION = "fixture-schema-v1"
-
 
 def database(*, origin="HUMAN_AUTHORED", review=True, admission_status="ADMITTED", verified_digest=None, verified_version=DIGEST_VERSION):
     conn = sqlite3.connect(":memory:")
+    conn.execute("PRAGMA user_version=2")
     conn.executescript(
         """
         CREATE TABLE modality_operators(operator_id TEXT PRIMARY KEY, symbol TEXT, canonical_name TEXT, definition TEXT, evidence_channel TEXT, may_assert_action INTEGER);
@@ -54,7 +55,7 @@ def database(*, origin="HUMAN_AUTHORED", review=True, admission_status="ADMITTED
     conn.execute("INSERT INTO taxonomy_nodes VALUES ('d','DOMAIN','Maintenance','maintenance','Repairs','ACTIVE','t0','t1')")
     conn.execute("INSERT INTO loop_taxonomy VALUES ('l1','d','DOMAIN')")
     conn.commit()
-    digest = loop_digest(conn, "l1", schema_version=SCHEMA_VERSION)
+    digest = loop_digest(conn, "l1", )
     conn.execute(
         "INSERT INTO loop_admission VALUES ('l1',?,?,?,?)",
         (origin, admission_status, verified_digest if verified_digest is not None else digest, verified_version),
@@ -69,22 +70,22 @@ def database(*, origin="HUMAN_AUTHORED", review=True, admission_status="ADMITTED
 class GSTContextTests(unittest.TestCase):
     def test_digest_is_deterministic_and_sensitive_to_semantic_change(self):
         conn = database()
-        initial = loop_digest(conn, "l1", schema_version=SCHEMA_VERSION)
-        self.assertEqual(initial, loop_digest(conn, "l1", schema_version=SCHEMA_VERSION))
+        initial = loop_digest(conn, "l1", )
+        self.assertEqual(initial, loop_digest(conn, "l1", ))
         conn.execute("UPDATE tote_steps SET plain_text='repair different widget' WHERE loop_id='l1' AND step_index=1")
-        self.assertNotEqual(loop_digest(conn, "l1", schema_version=SCHEMA_VERSION), initial)
+        self.assertNotEqual(loop_digest(conn, "l1", ), initial)
 
 
     def test_lookup_requires_latest_matching_validation_not_admission_status(self):
         conn = database()
-        ctx = lookup_loop(conn, domain="Maintenance", action="repair widget", schema_version=SCHEMA_VERSION)
+        ctx = lookup_loop(conn, domain_id="d", action_key="repair widget", )
         self.assertEqual(ctx.status, "HIT")
         self.assertEqual(ctx.loop["steps"][0]["step_index"], 0)
 
         conn.execute("UPDATE tote_steps SET plain_text='changed' WHERE loop_id='l1' AND step_index=1")
-        new_digest = loop_digest(conn, "l1", schema_version=SCHEMA_VERSION)
+        new_digest = loop_digest(conn, "l1", )
         conn.execute("UPDATE loop_admission SET verified_loop_sha256=? WHERE loop_id='l1'", (new_digest,))
-        stale = lookup_loop(conn, domain="Maintenance", action="repair widget", schema_version=SCHEMA_VERSION)
+        stale = lookup_loop(conn, domain_id="d", action_key="repair widget", )
         self.assertEqual(stale.status, "CACHE_MISS")
         self.assertEqual(stale.miss_reason, "LATEST_VALIDATION_DOES_NOT_MATCH")
 
@@ -92,7 +93,7 @@ class GSTContextTests(unittest.TestCase):
         for state in ("CANDIDATE", "REJECTED"):
             with self.subTest(state=state):
                 conn = database(admission_status=state)
-                result = lookup_loop(conn, domain="Maintenance", action="repair widget", schema_version=SCHEMA_VERSION)
+                result = lookup_loop(conn, domain_id="d", action_key="repair widget", )
                 self.assertEqual(result.status, "CACHE_MISS")
                 self.assertEqual(result.miss_reason, "NOT_ADMITTED")
 
@@ -101,7 +102,7 @@ class GSTContextTests(unittest.TestCase):
         for digest, version in cases:
             with self.subTest(version=version, digest=bool(digest)):
                 conn = database(verified_digest=digest, verified_version=version)
-                result = lookup_loop(conn, domain="Maintenance", action="repair widget", schema_version=SCHEMA_VERSION)
+                result = lookup_loop(conn, domain_id="d", action_key="repair widget", )
                 self.assertEqual(result.status, "CACHE_MISS")
                 self.assertEqual(result.miss_reason, "ADMISSION_DIGEST_DOES_NOT_MATCH")
 
@@ -109,17 +110,17 @@ class GSTContextTests(unittest.TestCase):
     def test_origin_specific_review_policy(self):
         human = database(origin="HUMAN_AUTHORED", review=False)
         self.assertEqual(
-            lookup_loop(human, domain="Maintenance", action="repair widget", schema_version=SCHEMA_VERSION).status,
+            lookup_loop(human, domain_id="d", action_key="repair widget", ).status,
             "HIT",
         )
 
         how_to_missing = database(origin="HOW_TO_EXTRACTED", review=False)
-        missing_result = lookup_loop(how_to_missing, domain="Maintenance", action="repair widget", schema_version=SCHEMA_VERSION)
+        missing_result = lookup_loop(how_to_missing, domain_id="d", action_key="repair widget", )
         self.assertEqual(missing_result.status, "CACHE_MISS")
         self.assertEqual(missing_result.miss_reason, "LATEST_HUMAN_REVIEW_DOES_NOT_MATCH")
         how_to_approved = database(origin="HOW_TO_EXTRACTED", review=True)
         self.assertEqual(
-            lookup_loop(how_to_approved, domain="Maintenance", action="repair widget", schema_version=SCHEMA_VERSION).status,
+            lookup_loop(how_to_approved, domain_id="d", action_key="repair widget", ).status,
             "HIT",
         )
 
@@ -127,7 +128,7 @@ class GSTContextTests(unittest.TestCase):
             for has_review in (False, True):
                 with self.subTest(origin=origin, has_review=has_review):
                     conn = database(origin=origin, review=has_review)
-                    result = lookup_loop(conn, domain="Maintenance", action="repair widget", schema_version=SCHEMA_VERSION)
+                    result = lookup_loop(conn, domain_id="d", action_key="repair widget", )
                     self.assertEqual(result.status, "CACHE_MISS")
                     self.assertEqual(result.miss_reason, "UNSUPPORTED_ORIGIN")
 
@@ -135,12 +136,12 @@ class GSTContextTests(unittest.TestCase):
         for origin in ("HOW_TO_EXTRACTED",):
             with self.subTest(origin=origin):
                 conn = database(origin=origin)
-                digest = loop_digest(conn, "l1", schema_version=SCHEMA_VERSION)
+                digest = loop_digest(conn, "l1", )
                 conn.execute(
                     "INSERT INTO loop_human_reviews VALUES ('r2','l1','reviewer',?,?, 'REJECTED','2026-02-01T00:00:00Z')",
                     (digest, DIGEST_VERSION),
                 )
-                result = lookup_loop(conn, domain="Maintenance", action="repair widget", schema_version=SCHEMA_VERSION)
+                result = lookup_loop(conn, domain_id="d", action_key="repair widget", )
                 self.assertEqual(result.status, "CACHE_MISS")
                 self.assertEqual(result.miss_reason, "LATEST_HUMAN_REVIEW_DOES_NOT_MATCH")
 
@@ -148,14 +149,15 @@ class GSTContextTests(unittest.TestCase):
         conn = database()
         conn.execute("INSERT INTO tote_loops VALUES ('l2','Repair 2','Maintenance','repair object','is broken','works',2,'CANONICAL')")
         conn.execute("INSERT INTO tote_loop_elements VALUES ('l2','ACTION',0,'repair widget','repair widget',1,NULL)")
-        result = lookup_loop(conn, domain="Maintenance", action="repair widget", schema_version=SCHEMA_VERSION)
+        conn.execute("INSERT INTO loop_taxonomy VALUES ('l2','d','DOMAIN')")
+        result = lookup_loop(conn, domain_id="d", action_key="repair widget", )
         self.assertEqual(result.status, "CACHE_MISS")
         self.assertEqual(result.miss_reason, "AMBIGUOUS_EXACT_MATCH")
 
     def test_partial_migration_fails_closed(self):
         conn = database()
         conn.execute("DROP TABLE loop_human_reviews")
-        result = lookup_loop(conn, domain="Maintenance", action="repair widget", schema_version=SCHEMA_VERSION)
+        result = lookup_loop(conn, domain_id="d", action_key="repair widget", )
         self.assertEqual(result.status, "CACHE_MISS")
         self.assertEqual(result.miss_reason, "VALIDATION_SCHEMA_UNAVAILABLE")
 
@@ -164,7 +166,7 @@ class GSTContextTests(unittest.TestCase):
             with self.subTest(table=table):
                 conn = database()
                 conn.execute(f'DROP TABLE "{table}"')
-                result = lookup_loop(conn, domain="Maintenance", action="repair widget", schema_version=SCHEMA_VERSION)
+                result = lookup_loop(conn, domain_id="d", action_key="repair widget", )
                 self.assertEqual(result.status, "CACHE_MISS")
 
     def test_digest_and_utf8_decode_failures_fail_closed(self):
@@ -175,14 +177,14 @@ class GSTContextTests(unittest.TestCase):
             with self.subTest(mutation=mutation):
                 conn = database()
                 conn.execute(mutation)
-                result = lookup_loop(conn, domain="Maintenance", action="repair widget", schema_version=SCHEMA_VERSION)
+                result = lookup_loop(conn, domain_id="d", action_key="repair widget", )
                 self.assertEqual(result.status, "CACHE_MISS")
                 self.assertEqual(result.miss_reason, "DIGEST_RECOMPUTATION_FAILED")
 
 
     def test_cache_miss_handoff_has_b6_invariants_and_no_writeback(self):
         conn = database()
-        miss = lookup_loop(conn, domain="Other", action="unseen action", schema_version=SCHEMA_VERSION)
+        miss = lookup_loop(conn, domain_id="missing", action_key="unseen action", )
         handoff = cache_miss_handoff(miss)
         self.assertEqual(handoff["target"], "B6_SYMBOL_SELECTION")
         self.assertIn("registered_modality_operator", handoff["required_invariants"])
@@ -202,8 +204,33 @@ class GSTContextTests(unittest.TestCase):
         )
         self.assertEqual(loop_candidate.review_status, "PENDING_HUMAN_REVIEW")
 
+    def test_exact_canonical_domain_and_action_key_matching(self):
+        conn = database()
+        self.assertEqual(lookup_loop(conn, domain_id="d", action_key="repair widget").status, "HIT")
+        self.assertEqual(lookup_loop(conn, domain_id="wrong", action_key="repair widget").miss_reason, "NO_EXACT_MATCH")
+        self.assertEqual(lookup_loop(conn, domain_id="d", action_key="Repair widget").miss_reason, "NO_EXACT_MATCH")
 
-    def test_schema_version_must_be_explicit(self):
+    def test_gst_json_contract_preserves_narrative_and_span_provenance(self):
+        conn = database()
+        narrative = {"perspective": "third", "tense": "past", "subject": "technician", "predicate": "repaired", "intervals": []}
+        provenance = ({"field": "narrative.subject", "source_digest": "a" * 64, "byte_start": 0, "byte_end": 10, "epistemic_status": "explicit"},)
+        result = lookup_loop(conn, domain_id="d", action_key="repair widget", narrative=narrative, provenance=provenance).as_dict()
+        schema = json.loads((Path(__file__).parents[1] / "schemas/gst-context-v1.schema.json").read_text())
+        self.assertEqual(set(result), set(schema["required"]))
+        self.assertEqual(result["narrative"], narrative)
+        self.assertEqual(result["provenance"], list(provenance))
+        self.assertEqual(result["integrity"]["schema_version"], 2)
+
+    def test_malformed_narrative_and_provenance_rejected(self):
         conn = database()
         with self.assertRaises(ValueError):
-            loop_digest(conn, "l1", schema_version=" ")
+            lookup_loop(conn, domain_id="d", action_key="repair widget", narrative={"prompt": "raw prompt"})
+        with self.assertRaises(ValueError):
+            lookup_loop(conn, domain_id="d", action_key="repair widget", provenance=({"raw_prompt": "secret"},))
+
+
+    def test_schema_version_comes_from_pragma_user_version(self):
+        conn = database()
+        conn.execute("PRAGMA user_version=1")
+        with self.assertRaisesRegex(Exception, "unsupported TOTE schema version"):
+            loop_digest(conn, "l1")
