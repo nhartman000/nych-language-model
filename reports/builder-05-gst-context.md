@@ -1,36 +1,32 @@
-# Builder 5 Candidate Build Report — GST Context
+# Builder 5 GST Context — V2 Candidate
 
-Status: PASS — independently inspected and integrated on `main` at `873f60093182c6bfc3f5a0dcc5ba28fb16e70c5e`. The candidate branch remains available for review history.
+Status: candidate for independent inspection on branch `builder-05/gst-context-v2`. The TOTE schema migration remains a draft; no change was made to the T.O.T.E-loops repository.
 
-## Delivered
+## Approved contract implemented
 
-- `src/nych_language_model/pipeline/gst_context.py`: read-only SQLite adapter, literal exact domain/action lookup, request-scoped GST payload, canonical `NYCH-TOTE-LOOP-DIGEST-V1` recomputation, latest PASS validation and required latest human-review checks, explicit B6 cache-miss handoff, Google search provider protocol with provenance-bearing candidates, and a how-to loop wrapper that remains `PENDING_HUMAN_REVIEW`.
-- `_verified_hit()` requires `ADMITTED` plus matching stored digest/version, and also checks the latest PASS validation and any required latest human review against a freshly recomputed digest.
-- Lookup selection, digest recomputation, verification, and returned GST payload assembly run inside one SQLite savepoint/read snapshot.
-- Canonical digest assembly requires every base and proposal payload table; any missing canonical table fails closed.
-- Origin policy follows the approved admission design: `HUMAN_AUTHORED` requires matching admission and latest PASS validation, with no separate review; `HOW_TO_EXTRACTED` additionally requires latest matching APPROVED human review. `SEED`, `OTHER`, and unknown origins fail closed until their policy is approved.
-- `tests/test_gst_context.py`: thirteen focused `unittest` checks including each missing canonical table, supported/unsupported origin review gates, stale admission digest/version, rejected latest review, ambiguous matches, partial migration, digest and UTF-8 decode failures.
+- Schema version is read from SQLite `PRAGMA user_version`; B5 accepts version 2 only and includes the integer in the canonical digest payload. Draft migration 002 sets `PRAGMA user_version = 2`.
+- Lookup accepts a canonical taxonomy `domain_id` and exact `action_key`, matching `loop_taxonomy.node_id` and `tote_loop_elements.normalized_key`; ambiguous results fail as cache misses.
+- GST emits versioned JSON matching `schemas/gst-context-v1.schema.json`: request keys, taxonomy, TOTE data, upstream narrative envelope, provenance spans, digest integrity and miss reason.
+- Narrative values are passed through from upstream; B5 does not infer them. The input validator only accepts the declared fields and structured provenance with digest-bound half-open UTF-8 byte spans. It rejects raw-prompt fields.
+- Search remains a provider interface that returns sourced, unapproved candidates. No live search/network call or credentials are used.
 
-Raw prompts are not accepted or stored. The module performs no database writes and does not make a live search request. Search results and extracted loops remain in-memory candidates.
+The previously reviewed integrity boundary remains: only exact canonical payload tables; read snapshot; recomputed digest; `ADMITTED`; latest matching PASS; `HUMAN_AUTHORED` requires structural/invariant validation; `HOW_TO_EXTRACTED` additionally requires latest matching human approval; other origins fail closed. Raw prompts are not persisted.
 
-## Independent review and checks
+## Validation
 
-Inspector 5 reviewed commit `873f60093182c6bfc3f5a0dcc5ba28fb16e70c5e`, verified the source and test blobs, and independently ran:
+- `PYTHONPATH=src python -m unittest discover -s tests -v` — 36 tests passed.
+- `python -m json.tool schemas/gst-context-v1.schema.json` — valid JSON.
+- `git diff --check` — clean.
 
-- `PYTHONPATH=src python -m unittest discover -s tests -v` — 33 tests passed.
+## Remaining boundaries
 
-The builder also reported 13 focused tests passing on that commit.
+- Migration 002 is still draft/unapplied pending the separate approval; current production TOTE DBs remain schema version 0/legacy and B5 fails closed until migrated.
+- The caller/upstream B4 must produce canonical domain IDs, action keys, narrative fields and provenance spans.
+- Live Google integration, search ranking/acceptance, taxonomy extraction/admission, and end-to-end B4→B5→B6 wiring are not implemented.
+- GST version is V1; contract changes require a new schema version.
 
-## Contract boundaries and blockers
+## Artifact SHA-256
 
-- The reviewed draft does not define a database schema-version source. The trusted caller must supply `schema_version` into the canonical payload; this candidate fails closed on an empty value.
-- Deterministic action matching is still an owner-open decision. The candidate uses literal equality on `tote_loop_elements.element_text` and `tote_loops.domain`, with ambiguity returning a cache miss; it performs no normalization or fuzzy correction.
-- GST wire schema, search-result acceptance/ranking, query generation, taxonomy extraction, and candidate presentation remain open. The adapter exposes provenance-bearing search candidates but does not infer or admit taxonomy nodes.
-- The current base TOTE schema lacks validation/review and action-element tables. Without the reviewed additive migration and its linked records, entries are cache misses. Migration is not applied and the T.O.T.E-Loops repository/schema is untouched.
-
-## Artifact digests
-
-Generated after implementation; SHA-256 covers exact UTF-8 file bytes.
-
-- `src/nych_language_model/pipeline/gst_context.py`: `c5901c00aa06d6d798f1f5e685702edc633584c404eef4105e7c2a2c7e74c229`
-- `tests/test_gst_context.py`: `175c4a7450f950b62244163b6e8989bc6aa24806a45dac358da0ade9755c7b0e`
+- `gst_context.py`: `e4c48d7b22c1ab4faff3db7fe0168a4a8f571150142ee4cceaff520c3507ff06`
+- `test_gst_context.py`: `2662b530d5d8fea724b821bec3ac1af9c1945dba0cb734b19c3d6f998b6eaab2`
+- `gst-context-v1.schema.json`: `9de859f71fae8cf72a97a811de85e974f554cc053e70e7266f044026f55fad4e`
