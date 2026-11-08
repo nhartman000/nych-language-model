@@ -2,15 +2,15 @@
 
 ## Status
 
-Owner-approved architecture: GST assembly and symbol selection are separate modules; the first symbol-selection call receives both request-scoped GST and the complete natural-language prompt. A deterministic database lookup occurs as domain/action information is identified. If there is no matching record, the first symbol-selection call resolves the missing entry dynamically under invariant constraints.
+Owner-approved architecture: GST assembly and symbol selection are separate modules; the first symbol-selection call receives request-scoped GST and the complete natural-language prompt. B5 V2 now performs deterministic lookup with exact canonical domain/action keys, recomputes the loop digest, and emits a versioned GST JSON object. The TOTE schema expansion and migration 002 are merged in `nhartman000/T.O.T.E-loops`; migration of an existing SQLite file and conformance testing are deferred to the later test pass. The B5 candidate passed independent inspection and its NYCH suite passed 36 tests.
 
-The source schema is identified at `nhartman000/T.O.T.E-loops/schema.sql`; the owner approved extending this same SQLite database additively. A private draft proposal is at `docs/GST_TAXONOMY_SCHEMA_PROPOSAL_V1.md`; it is not an applied migration. It defines `modality_operators`, `gestalts`, `tote_loops`, `tote_steps`, and `loop_gestalts`; `src/build_db.py` generates SQLite `data/tote_loops.sqlite3` and deterministic `data/tote_loops.json`. This NYCH repo has not implemented the GST adapter. The runtime adapter/endpoint, match rule, GST wire schema, hierarchy mapping/extension, evidence format, symbol-selection wire schema, and database write/verification policy remain open.
+The migration records `PRAGMA user_version=2`; the B5 digest includes that integer. Existing TOTE seed records and JSON export fields are unchanged. The guarded runner is `migrations/apply_002.py`. Live search, query/ranking policy, upstream B4→B5 interface, and database write/admission endpoint remain open.
 
 ## Processing model
 
 1. B1 ingests the exact prompt; B2 supplies token boundaries and source spans; B3 supplies trace identity; B4 resolves domain evidence using its approved local lexicon and no LLM calls.
-2. Once B4 identifies a domain, B5 checks existing TOTE records deterministically. The current schema exposes `tote_loops.domain`; action text is represented in `tote_steps.plain_text`/`nych_text`, with modality/proposition/provenance fields on steps. Existing matching records are assembled into request-scoped global `.gst`.
-3. B5 enriches the identified domain hierarchy through Google search for applicable subdomains, sub-subdomains, functions, and techniques, retaining source provenance. The current SQLite schema has no dedicated hierarchy/action/actor/object fields, so search-derived taxonomy is tracked separately until the approved additive schema extension is implemented.
+2. B5 reads `PRAGMA user_version` and requires version 2. It matches B4's canonical `domain_id` and `action_key` exactly against TOTE taxonomy/action keys; ambiguous matches are cache misses. Verified loop context is assembled into request-scoped `.gst`.
+3. A provider interface can return sourced candidates for missing hierarchy nodes. Candidates retain provenance and remain unapproved until human review; live Google calls, credentials, and ranking/acceptance rules are not yet implemented.
 4. Techniques may be extracted from how-to texts into loop candidates. A human validates these candidates before canonical admission. Existing TOTE records remain deterministic; if no record exists for the action under that domain, the first B6 symbol-selection call resolves the missing context/gestalt dynamically under invariant TOTE and modality rules.
 5. Database coverage grows as reviewed material and human contributions are admitted. A future web interface will let contributors select domain/subdomain/sub-subdomain/function/technique from dropdowns, choose modality operators from a dropdown, and type action descriptions. Contributions are human-authored and then automatically verified against schema constraints and NYCH/TOTE invariants before admission. Exact matching rules, schema extensions, verifier suite, persistence, conflict handling, and versioning remain open.
 
@@ -18,9 +18,11 @@ Known records are looked up before the call; missing records are handled during 
 
 ## GST structure and invariants
 
-The global `.gst` represents:
+The versioned GST JSON V1 contract represents:
 
 `domain → subdomain → sub-subdomain → function → technique → TOTE loop`
+
+The emitted context includes lookup state, taxonomy, TOTE elements/steps, linked gestalts and modality operators, upstream narrative/provenance envelopes, and digest integrity. Narrative is passed through from upstream; B5 does not infer it. The contract is defined in `schemas/gst-context-v1.schema.json`.
 
 A TOTE loop means Test–Operate–Test–Exit and has at least one actor, one action, one object or tool, and one modality operator. These are invariants, not optional fields to guess or omit.
 
@@ -46,7 +48,7 @@ The planned web interface is a human contribution path, not a replacement for th
 - B2 supplies source spans and token boundaries; it does not choose gestalts.
 - B3 creates trace identity; it does not infer meaning.
 - B4 resolves domain evidence locally without LLM calls.
-- B5 owns deterministic lookup against current TOTE records, Google-search taxonomy enrichment with source provenance, and request-scoped GST assembly. The trusted runtime recomputes the canonical loop digest on every hit; status alone never licenses a hit. It routes how-to-derived loop candidates for human validation and supports the future auto-verified human contribution workflow.
+- B5 owns exact canonical domain/action lookup, versioned GST assembly, digest verification, and provenance-aware provider candidate interfaces. It does not make live search calls or infer narrative fields. The trusted runtime recomputes the canonical loop digest on every hit; status alone never licenses a hit. How-to-derived loops require matching human approval; human-authored entries require automatic structural/invariant validation.
 - B6 owns the first symbol-selection call, using B5 context and the separate prompt; it handles missing entries dynamically under the invariants.
 - New database-entry approval, validation, persistence, conflict resolution, and versioning must be defined before write-back is enabled.
 
@@ -54,8 +56,9 @@ Raw prompt and GST are request-scoped. Never persist raw prompts or write them t
 
 ## Open interface decisions
 
-- exact `.gst` schema, fields, versioning, and serialization;
-- current schema source: `T.O.T.E-loops/schema.sql`; runtime adapter/endpoint and versioning;
+- upstream B4→B5 interface for canonical IDs, action keys, narrative fields, and provenance;
+- live Google provider credentials, query generation, source ranking, and candidate acceptance;
+- runtime write endpoint and database admission permissions;
 - cache-miss and unknown representation;
 - trusted lookup/write boundary: never accept `admission_status` alone; recompute `NYCH-TOTE-LOOP-DIGEST-V1` at lookup and compare the digest and version with the latest PASS validation and any required human review;
 - database write-back, validation, conflict, and approval policy;
