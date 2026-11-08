@@ -1,0 +1,175 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nych:schemas:gst-context-v1",
+  "title": "NYCH GST Context V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "gst_version",
+    "status",
+    "request",
+    "taxonomy",
+    "tote",
+    "narrative",
+    "provenance",
+    "integrity",
+    "miss_reason"
+  ],
+  "properties": {
+    "gst_version": {
+      "const": "NYCH-GST-CONTEXT-V1"
+    },
+    "status": {
+      "enum": [
+        "HIT",
+        "CACHE_MISS"
+      ]
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "domain_id",
+        "canonical_action_key"
+      ],
+      "properties": {
+        "domain_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "canonical_action_key": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "taxonomy": {
+      "type": "object"
+    },
+    "tote": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "narrative": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "perspective",
+        "tense",
+        "subject",
+        "predicate",
+        "intervals"
+      ],
+      "properties": {
+        "perspective": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tense": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "subject": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "predicate": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "intervals": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    "provenance": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "field",
+          "source_digest",
+          "byte_start",
+          "byte_end",
+          "epistemic_status"
+        ],
+        "properties": {
+          "field": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "byte_start": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "byte_end": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "epistemic_status": {
+            "enum": [
+              "explicit",
+              "inferred",
+              "predicted"
+            ]
+          }
+        }
+      }
+    },
+    "integrity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "digest",
+        "digest_version",
+        "schema_version"
+      ],
+      "properties": {
+        "digest": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "digest_version": {
+          "const": "NYCH-TOTE-LOOP-DIGEST-V1"
+        },
+        "schema_version": {
+          "oneOf": [
+            {
+              "const": 2
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "miss_reason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}
