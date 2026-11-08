@@ -43,6 +43,34 @@ class GSTContractError(RuntimeError):
     """The database does not satisfy the candidate GST read contract."""
 
 
+def _validate_context_inputs(narrative: Mapping[str, Any] | None, provenance: Sequence[Mapping[str, Any]]) -> None:
+    allowed = {"perspective", "tense", "subject", "predicate", "intervals"}
+    if narrative is not None:
+        if not isinstance(narrative, Mapping) or set(narrative) - allowed:
+            raise ValueError("narrative must contain only structured NYCH narrative fields")
+        if set(narrative) != allowed:
+            raise ValueError("narrative requires perspective, tense, subject, predicate, intervals")
+        if not isinstance(narrative["intervals"], list):
+            raise ValueError("narrative intervals must be a list")
+        for key in ("perspective", "tense", "subject", "predicate"):
+            if narrative[key] is not None and not isinstance(narrative[key], str):
+                raise ValueError(f"narrative {key} must be text or null")
+    if not isinstance(provenance, Sequence) or isinstance(provenance, (str, bytes)):
+        raise ValueError("provenance must be a sequence of structured span records")
+    for item in provenance:
+        if not isinstance(item, Mapping) or set(item) != {"field", "source_digest", "byte_start", "byte_end", "epistemic_status"}:
+            raise ValueError("provenance records require field, source_digest, byte_start, byte_end, epistemic_status")
+        if not isinstance(item["field"], str) or not item["field"]:
+            raise ValueError("provenance field must be non-empty text")
+        digest = item["source_digest"]
+        if not isinstance(digest, str) or len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
+            raise ValueError("provenance source_digest must be lowercase SHA-256")
+        if not isinstance(item["byte_start"], int) or not isinstance(item["byte_end"], int) or not 0 <= item["byte_start"] < item["byte_end"]:
+            raise ValueError("provenance requires a non-empty half-open byte span")
+        if item["epistemic_status"] not in {"explicit", "inferred", "predicted"}:
+            raise ValueError("invalid provenance epistemic_status")
+
+
 @dataclass(frozen=True, slots=True)
 class SearchResult:
     """A search result with provenance, suitable only as an enrichment candidate."""
@@ -90,22 +118,29 @@ class GSTContext:
     """Request-scoped context; no prompt text is retained or included."""
 
     status: Literal["HIT", "CACHE_MISS"]
-    domain: str
-    action: str
+    domain_id: str
+    action_key: str
     loop: Mapping[str, Any] | None
     digest: str | None
     digest_version: str
     miss_reason: str | None = None
+    narrative: Mapping[str, Any] | None = None
+    provenance: tuple[Mapping[str, Any], ...] = ()
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "gst_version": "NYCH-GST-CONTEXT-V1",
             "status": self.status,
-            "domain": self.domain,
-            "action": self.action,
-            "loop": self.loop,
-            "digest": self.digest,
-            "digest_version": self.digest_version,
+            "request": {"domain_id": self.domain_id, "canonical_action_key": self.action_key},
+            "taxonomy": (self.loop or {}).get("taxonomy", {}),
+            "tote": self.loop,
+            "narrative": self.narrative or {"perspective": None, "tense": None, "subject": None, "predicate": None, "intervals": []},
+            "provenance": list(self.provenance),
+            "integrity": {
+                "digest": self.digest,
+                "digest_version": self.digest_version,
+                "schema_version": (self.loop or {}).get("schema_version"),
+            },
             "miss_reason": self.miss_reason,
         }
 
@@ -153,17 +188,15 @@ def _source_rows(conn: sqlite3.Connection, source_ids: set[str]) -> list[dict[st
 def canonical_loop_payload(
     conn: sqlite3.Connection,
     loop_id: str,
-    *,
-    schema_version: str,
 ) -> dict[str, Any]:
     """Build the contract's canonical payload, including all documented links.
 
-    ``schema_version`` is supplied by the trusted database adapter because the
-    draft schema has not settled on a schema-version source. The function does
-    not infer one from table presence or ``PRAGMA user_version``.
+    The migration-owned SQLite user_version is authoritative and part of the
+    digest payload. Version 2 is required by the B5 additive schema contract.
     """
-    if not isinstance(schema_version, str) or not schema_version.strip():
-        raise ValueError("schema_version must be supplied by the trusted adapter")
+    schema_version = int(conn.execute("PRAGMA user_version").fetchone()[0])
+    if schema_version != 2:
+        raise GSTContractError(f"unsupported TOTE schema version: {schema_version}; expected 2")
     tables = _tables(conn)
     missing = REQUIRED_PAYLOAD_TABLES - tables
     if missing:
@@ -287,9 +320,9 @@ def canonical_loop_payload(
     }
 
 
-def loop_digest(conn: sqlite3.Connection, loop_id: str, *, schema_version: str) -> str:
+def loop_digest(conn: sqlite3.Connection, loop_id: str) -> str:
     """Return lowercase SHA-256 over the approved prefix and canonical JSON."""
-    payload = canonical_loop_payload(conn, loop_id, schema_version=schema_version)
+    payload = canonical_loop_payload(conn, loop_id)
     encoded = json.dumps(
         payload,
         ensure_ascii=False,
@@ -318,8 +351,8 @@ def _latest_review(conn: sqlite3.Connection, loop_id: str) -> sqlite3.Row | None
     ).fetchone()
 
 
-def _verified_hit(conn: sqlite3.Connection, loop_id: str, *, schema_version: str) -> tuple[bool, str, str]:
-    digest = loop_digest(conn, loop_id, schema_version=schema_version)
+def _verified_hit(conn: sqlite3.Connection, loop_id: str) -> tuple[bool, str, str]:
+    digest = loop_digest(conn, loop_id)
     tables = _tables(conn)
     if not {"loop_admission", "loop_validation_runs", "loop_human_reviews"} <= tables:
         return False, digest, "VALIDATION_SCHEMA_UNAVAILABLE"
@@ -354,52 +387,55 @@ def _verified_hit(conn: sqlite3.Connection, loop_id: str, *, schema_version: str
 def lookup_loop(
     conn: sqlite3.Connection,
     *,
-    domain: str,
-    action: str,
-    schema_version: str,
+    domain_id: str,
+    action_key: str,
+    narrative: Mapping[str, Any] | None = None,
+    provenance: Sequence[Mapping[str, Any]] = (),
 ) -> GSTContext:
     """Perform conservative literal domain/action lookup and build GST on hit.
 
-    Literal matching is intentionally limited to ``domain`` and an ACTION row
-    in the draft additive table. No fuzzy match, normalization, or inferred
-    action policy is applied. Because deterministic action matching is still
-    owner-open, this behavior is an explicit candidate adapter contract only.
+    Match exact canonical taxonomy ID and exact normalized action key. No
+    fuzzy matching or normalization occurs in B5; upstream owns canonicalization.
     """
-    if not isinstance(domain, str) or not domain:
-        raise ValueError("domain must be non-empty text")
-    if not isinstance(action, str) or not action:
-        raise ValueError("action must be non-empty text")
+    if not isinstance(domain_id, str) or not domain_id:
+        raise ValueError("domain_id must be non-empty text")
+    if not isinstance(action_key, str) or not action_key:
+        raise ValueError("action_key must be non-empty text")
+    _validate_context_inputs(narrative, provenance)
     tables = _tables(conn)
     if "tote_loop_elements" not in tables:
-        return GSTContext("CACHE_MISS", domain, action, None, None, DIGEST_VERSION, "ACTION_INDEX_UNAVAILABLE")
+        return GSTContext("CACHE_MISS", domain_id, action_key, None, None, DIGEST_VERSION, "ACTION_INDEX_UNAVAILABLE", narrative, tuple(provenance))
     try:
         with _read_snapshot(conn):
             matches = _dict_rows(
                 conn,
-                "SELECT DISTINCT l.loop_id FROM tote_loops l JOIN tote_loop_elements e USING(loop_id) "
-                "WHERE l.domain=? AND e.element_role='ACTION' AND e.element_text=? ORDER BY l.loop_id",
-                (domain, action),
+                "SELECT DISTINCT l.loop_id FROM tote_loops l "
+                "JOIN tote_loop_elements e USING(loop_id) "
+                "JOIN loop_taxonomy lt ON lt.loop_id=l.loop_id AND lt.relationship_role='DOMAIN' "
+                "WHERE lt.node_id=? AND e.element_role='ACTION' AND e.normalized_key=? ORDER BY l.loop_id",
+                (domain_id, action_key),
             )
             if not matches:
-                return GSTContext("CACHE_MISS", domain, action, None, None, DIGEST_VERSION, "NO_EXACT_MATCH")
+                return GSTContext("CACHE_MISS", domain_id, action_key, None, None, DIGEST_VERSION, "NO_EXACT_MATCH", narrative, tuple(provenance))
             if len(matches) != 1:
-                return GSTContext("CACHE_MISS", domain, action, None, None, DIGEST_VERSION, "AMBIGUOUS_EXACT_MATCH")
+                return GSTContext("CACHE_MISS", domain_id, action_key, None, None, DIGEST_VERSION, "AMBIGUOUS_EXACT_MATCH", narrative, tuple(provenance))
             loop_id = matches[0]["loop_id"]
-            valid, digest, reason = _verified_hit(conn, loop_id, schema_version=schema_version)
+            valid, digest, reason = _verified_hit(conn, loop_id)
             if not valid:
-                return GSTContext("CACHE_MISS", domain, action, None, digest, DIGEST_VERSION, reason)
-            payload = canonical_loop_payload(conn, loop_id, schema_version=schema_version)
-            return GSTContext("HIT", domain, action, payload, digest, DIGEST_VERSION)
+                return GSTContext("CACHE_MISS", domain_id, action_key, None, digest, DIGEST_VERSION, reason, narrative, tuple(provenance))
+            payload = canonical_loop_payload(conn, loop_id)
+            return GSTContext("HIT", domain_id, action_key, payload, digest, DIGEST_VERSION, None, narrative, tuple(provenance))
     except (GSTContractError, KeyError, sqlite3.Error, TypeError, ValueError, OverflowError, UnicodeError):
-        return GSTContext("CACHE_MISS", domain, action, None, None, DIGEST_VERSION, "DIGEST_RECOMPUTATION_FAILED")
+        return GSTContext("CACHE_MISS", domain_id, action_key, None, None, DIGEST_VERSION, "DIGEST_RECOMPUTATION_FAILED", narrative, tuple(provenance))
 
 
 def request_gst(
     conn: sqlite3.Connection,
     *,
-    domain: str,
-    action: str,
-    schema_version: str,
+    domain_id: str,
+    action_key: str,
+    narrative: Mapping[str, Any] | None = None,
+    provenance: Sequence[Mapping[str, Any]] = (),
     search_provider: GoogleSearchProvider | None = None,
 ) -> GSTContext:
     """Lookup first, then optionally expose sourced taxonomy candidates on miss.
@@ -410,7 +446,7 @@ def request_gst(
     result payload has an owner-approved GST wire schema.
     """
     del search_provider
-    return lookup_loop(conn, domain=domain, action=action, schema_version=schema_version)
+    return lookup_loop(conn, domain_id=domain_id, action_key=action_key, narrative=narrative, provenance=provenance)
 
 
 def search_taxonomy_candidates(
@@ -454,8 +490,8 @@ def cache_miss_handoff(context: GSTContext) -> dict[str, Any]:
         raise ValueError("cache_miss_handoff requires a CACHE_MISS context")
     return {
         "target": "B6_SYMBOL_SELECTION",
-        "domain": context.domain,
-        "action": context.action,
+        "domain_id": context.domain_id,
+        "canonical_action_key": context.action_key,
         "known_loop": None,
         "cache_miss": True,
         "reason": context.miss_reason,
