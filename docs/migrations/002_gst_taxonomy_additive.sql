@@ -226,6 +226,52 @@ BEGIN
     SELECT RAISE(ABORT, 'delete and reinsert taxonomy edges to revalidate hierarchy');
 END;
 
+-- Loop digest covers loop rows, ordered steps, loop elements, taxonomy links, source records, loop gestalts, and referenced gestalt/modality definitions.
+CREATE TRIGGER IF NOT EXISTS trg_invalidate_loop_on_loop_gestalt_insert
+AFTER INSERT ON loop_gestalts BEGIN
+    UPDATE loop_admission SET admission_status='CANDIDATE', verified_loop_sha256=NULL,
+        human_review_status=CASE WHEN origin='HOW_TO_EXTRACTED' THEN 'PENDING' ELSE human_review_status END, updated_at=CURRENT_TIMESTAMP
+    WHERE loop_id=NEW.loop_id;
+END;
+CREATE TRIGGER IF NOT EXISTS trg_invalidate_loop_on_loop_gestalt_update
+AFTER UPDATE ON loop_gestalts BEGIN
+    UPDATE loop_admission SET admission_status='CANDIDATE', verified_loop_sha256=NULL,
+        human_review_status=CASE WHEN origin='HOW_TO_EXTRACTED' THEN 'PENDING' ELSE human_review_status END, updated_at=CURRENT_TIMESTAMP
+    WHERE loop_id IN (OLD.loop_id, NEW.loop_id);
+END;
+CREATE TRIGGER IF NOT EXISTS trg_invalidate_loop_on_loop_gestalt_delete
+AFTER DELETE ON loop_gestalts BEGIN
+    UPDATE loop_admission SET admission_status='CANDIDATE', verified_loop_sha256=NULL,
+        human_review_status=CASE WHEN origin='HOW_TO_EXTRACTED' THEN 'PENDING' ELSE human_review_status END, updated_at=CURRENT_TIMESTAMP
+    WHERE loop_id=OLD.loop_id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_invalidate_loops_on_gestalt_update
+AFTER UPDATE ON gestalts BEGIN
+    UPDATE loop_admission SET admission_status='CANDIDATE', verified_loop_sha256=NULL,
+        human_review_status=CASE WHEN origin='HOW_TO_EXTRACTED' THEN 'PENDING' ELSE human_review_status END, updated_at=CURRENT_TIMESTAMP
+    WHERE loop_id IN (SELECT loop_id FROM loop_gestalts WHERE gestalt_id IN (OLD.gestalt_id, NEW.gestalt_id));
+END;
+CREATE TRIGGER IF NOT EXISTS trg_invalidate_loops_on_gestalt_delete
+AFTER DELETE ON gestalts BEGIN
+    UPDATE loop_admission SET admission_status='CANDIDATE', verified_loop_sha256=NULL,
+        human_review_status=CASE WHEN origin='HOW_TO_EXTRACTED' THEN 'PENDING' ELSE human_review_status END, updated_at=CURRENT_TIMESTAMP
+    WHERE loop_id IN (SELECT loop_id FROM loop_gestalts WHERE gestalt_id=OLD.gestalt_id);
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_invalidate_loops_on_modality_update
+AFTER UPDATE ON modality_operators BEGIN
+    UPDATE loop_admission SET admission_status='CANDIDATE', verified_loop_sha256=NULL,
+        human_review_status=CASE WHEN origin='HOW_TO_EXTRACTED' THEN 'PENDING' ELSE human_review_status END, updated_at=CURRENT_TIMESTAMP
+    WHERE loop_id IN (SELECT loop_id FROM tote_steps WHERE operator_id IN (OLD.operator_id, NEW.operator_id));
+END;
+CREATE TRIGGER IF NOT EXISTS trg_invalidate_loops_on_modality_delete
+AFTER DELETE ON modality_operators BEGIN
+    UPDATE loop_admission SET admission_status='CANDIDATE', verified_loop_sha256=NULL,
+        human_review_status=CASE WHEN origin='HOW_TO_EXTRACTED' THEN 'PENDING' ELSE human_review_status END, updated_at=CURRENT_TIMESTAMP
+    WHERE loop_id IN (SELECT loop_id FROM tote_steps WHERE operator_id=OLD.operator_id);
+END;
+
 -- Mutating any loop or linked taxonomy/provenance invalidates its prior admission and digest.
 CREATE TRIGGER IF NOT EXISTS trg_invalidate_loop_on_loop_update
 AFTER UPDATE ON tote_loops
