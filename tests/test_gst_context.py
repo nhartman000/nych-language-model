@@ -16,6 +16,52 @@ from nych_language_model.pipeline.gst_context import (
 )
 
 
+def assert_schema(instance, schema):
+    """Focused JSON Schema subset used here; avoids a runtime dependency."""
+    if "const" in schema and instance != schema["const"]:
+        raise AssertionError(f"expected const {schema['const']!r}, got {instance!r}")
+    if "enum" in schema and instance not in schema["enum"]:
+        raise AssertionError(f"value {instance!r} is outside enum")
+    if "oneOf" in schema:
+        matches = 0
+        for option in schema["oneOf"]:
+            try:
+                assert_schema(instance, option)
+                matches += 1
+            except AssertionError:
+                pass
+        if matches != 1:
+            raise AssertionError("oneOf must match exactly one branch")
+    if "type" in schema:
+        types = schema["type"] if isinstance(schema["type"], list) else [schema["type"]]
+        checks = {"object": lambda v: isinstance(v, dict), "array": lambda v: isinstance(v, list),
+                  "string": lambda v: isinstance(v, str), "integer": lambda v: isinstance(v, int) and not isinstance(v, bool),
+                  "null": lambda v: v is None}
+        if not any(checks[t](instance) for t in types):
+            raise AssertionError(f"wrong type for {instance!r}")
+    if isinstance(instance, dict):
+        for key in schema.get("required", []):
+            if key not in instance:
+                raise AssertionError(f"missing required property {key}")
+        properties = schema.get("properties", {})
+        if schema.get("additionalProperties") is False and set(instance) - set(properties):
+            raise AssertionError("additional properties are forbidden")
+        for key, value in instance.items():
+            if key in properties:
+                assert_schema(value, properties[key])
+    if isinstance(instance, list) and "items" in schema:
+        for value in instance:
+            assert_schema(value, schema["items"])
+    if isinstance(instance, str):
+        import re
+        if len(instance) < schema.get("minLength", 0):
+            raise AssertionError("string shorter than minLength")
+        if "pattern" in schema and re.search(schema["pattern"], instance) is None:
+            raise AssertionError("string does not match pattern")
+    if isinstance(instance, int) and not isinstance(instance, bool) and instance < schema.get("minimum", instance):
+        raise AssertionError("integer below minimum")
+
+
 
 def database(*, origin="HUMAN_AUTHORED", review=True, admission_status="ADMITTED", verified_digest=None, verified_version=DIGEST_VERSION):
     conn = sqlite3.connect(":memory:")
@@ -212,11 +258,11 @@ class GSTContextTests(unittest.TestCase):
 
     def test_gst_json_contract_preserves_narrative_and_span_provenance(self):
         conn = database()
-        narrative = {"perspective": "third", "tense": "past", "subject": "technician", "predicate": "repaired", "intervals": []}
+        narrative = {"perspective": "third", "tense": "past", "subject": "technician", "predicate": "repaired", "intervals": [{"kind": "RANGE", "start": "yesterday", "end": "today", "duration": None}]}
         provenance = ({"field": "narrative.subject", "source_digest": "a" * 64, "byte_start": 0, "byte_end": 10, "epistemic_status": "explicit"},)
         result = lookup_loop(conn, domain_id="d", action_key="repair widget", narrative=narrative, provenance=provenance).as_dict()
         schema = json.loads((Path(__file__).parents[1] / "schemas/gst-context-v1.schema.json").read_text())
-        self.assertEqual(set(result), set(schema["required"]))
+        assert_schema(result, schema)
         self.assertEqual(result["narrative"], narrative)
         self.assertEqual(result["provenance"], list(provenance))
         self.assertEqual(result["integrity"]["schema_version"], 2)
@@ -227,6 +273,8 @@ class GSTContextTests(unittest.TestCase):
             lookup_loop(conn, domain_id="d", action_key="repair widget", narrative={"prompt": "raw prompt"})
         with self.assertRaises(ValueError):
             lookup_loop(conn, domain_id="d", action_key="repair widget", provenance=({"raw_prompt": "secret"},))
+        with self.assertRaises(ValueError):
+            lookup_loop(conn, domain_id="d", action_key="repair widget", narrative={"perspective": None, "tense": None, "subject": None, "predicate": None, "intervals": [{"raw": "text"}]})
 
 
     def test_schema_version_comes_from_pragma_user_version(self):
