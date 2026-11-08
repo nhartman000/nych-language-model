@@ -16,7 +16,7 @@ from nych_language_model.pipeline.gst_context import (
 SCHEMA_VERSION = "fixture-schema-v1"
 
 
-def database(*, origin="SEED", review=True):
+def database(*, origin="SEED", review=True, admission_status="ADMITTED", verified_digest=None, verified_version=DIGEST_VERSION):
     conn = sqlite3.connect(":memory:")
     conn.executescript(
         """
@@ -32,7 +32,7 @@ def database(*, origin="SEED", review=True):
         CREATE TABLE loop_taxonomy(loop_id TEXT,node_id TEXT,relationship_role TEXT);
         CREATE TABLE tote_loop_elements(loop_id TEXT,element_role TEXT,element_index INTEGER,element_text TEXT,normalized_key TEXT,step_index INTEGER,source_id TEXT);
         CREATE TABLE loop_sources(loop_id TEXT,source_id TEXT,source_role TEXT);
-        CREATE TABLE loop_admission(loop_id TEXT,origin TEXT,admission_status TEXT);
+        CREATE TABLE loop_admission(loop_id TEXT,origin TEXT,admission_status TEXT,verified_loop_sha256 TEXT,verified_digest_version TEXT);
         CREATE TABLE loop_validation_runs(validation_id TEXT,loop_id TEXT,validator_version TEXT,result TEXT,checks_json TEXT,loop_sha256 TEXT,digest_version TEXT,validated_at TEXT);
         CREATE TABLE loop_human_reviews(review_id TEXT,loop_id TEXT,reviewer_ref TEXT,loop_sha256 TEXT,digest_version TEXT,outcome TEXT,reviewed_at TEXT);
         """
@@ -50,11 +50,14 @@ def database(*, origin="SEED", review=True):
          ("ACTION", 0, "repair widget", "repair widget", 1),
          ("OBJECT", 0, "widget", "widget", 1)],
     )
-    conn.execute("INSERT INTO loop_admission VALUES ('l1',?,'ADMITTED')", (origin,))
     conn.execute("INSERT INTO taxonomy_nodes VALUES ('d','DOMAIN','Maintenance','maintenance','Repairs','ACTIVE','t0','t1')")
     conn.execute("INSERT INTO loop_taxonomy VALUES ('l1','d','DOMAIN')")
     conn.commit()
     digest = loop_digest(conn, "l1", schema_version=SCHEMA_VERSION)
+    conn.execute(
+        "INSERT INTO loop_admission VALUES ('l1',?,?,?,?)",
+        (origin, admission_status, verified_digest if verified_digest is not None else digest, verified_version),
+    )
     conn.execute("INSERT INTO loop_validation_runs VALUES ('v1','l1','validator-1','PASS','{}',?,?, '2026-01-01T00:00:00Z')", (digest, DIGEST_VERSION))
     if review:
         conn.execute("INSERT INTO loop_human_reviews VALUES ('r1','l1','reviewer',?,?, 'APPROVED','2026-01-01T00:00:00Z')", (digest, DIGEST_VERSION))
@@ -78,9 +81,28 @@ class GSTContextTests(unittest.TestCase):
         self.assertEqual(ctx.loop["steps"][0]["step_index"], 0)
 
         conn.execute("UPDATE tote_steps SET plain_text='changed' WHERE loop_id='l1' AND step_index=1")
+        new_digest = loop_digest(conn, "l1", schema_version=SCHEMA_VERSION)
+        conn.execute("UPDATE loop_admission SET verified_loop_sha256=? WHERE loop_id='l1'", (new_digest,))
         stale = lookup_loop(conn, domain="Maintenance", action="repair widget", schema_version=SCHEMA_VERSION)
         self.assertEqual(stale.status, "CACHE_MISS")
         self.assertEqual(stale.miss_reason, "LATEST_VALIDATION_DOES_NOT_MATCH")
+
+    def test_candidate_and_rejected_admission_states_fail_closed(self):
+        for state in ("CANDIDATE", "REJECTED"):
+            with self.subTest(state=state):
+                conn = database(admission_status=state)
+                result = lookup_loop(conn, domain="Maintenance", action="repair widget", schema_version=SCHEMA_VERSION)
+                self.assertEqual(result.status, "CACHE_MISS")
+                self.assertEqual(result.miss_reason, "NOT_ADMITTED")
+
+    def test_stale_admission_digest_or_version_fails_closed(self):
+        cases = (("00" * 32, DIGEST_VERSION), (None, "NYCH-TOTE-LOOP-DIGEST-V0"))
+        for digest, version in cases:
+            with self.subTest(version=version, digest=bool(digest)):
+                conn = database(verified_digest=digest, verified_version=version)
+                result = lookup_loop(conn, domain="Maintenance", action="repair widget", schema_version=SCHEMA_VERSION)
+                self.assertEqual(result.status, "CACHE_MISS")
+                self.assertEqual(result.miss_reason, "ADMISSION_DIGEST_DOES_NOT_MATCH")
 
 
     def test_how_to_candidate_requires_latest_approved_review_for_digest(self):
@@ -93,6 +115,44 @@ class GSTContextTests(unittest.TestCase):
         conn.commit()
         # Admission state is not consulted as the authority for a verified hit.
         self.assertEqual(lookup_loop(conn, domain="Maintenance", action="repair widget", schema_version=SCHEMA_VERSION).status, "HIT")
+
+    def test_latest_rejected_human_review_invalidates_earlier_approval(self):
+        conn = database(origin="HOW_TO_EXTRACTED")
+        digest = loop_digest(conn, "l1", schema_version=SCHEMA_VERSION)
+        conn.execute(
+            "INSERT INTO loop_human_reviews VALUES ('r2','l1','reviewer',?,?, 'REJECTED','2026-02-01T00:00:00Z')",
+            (digest, DIGEST_VERSION),
+        )
+        result = lookup_loop(conn, domain="Maintenance", action="repair widget", schema_version=SCHEMA_VERSION)
+        self.assertEqual(result.status, "CACHE_MISS")
+        self.assertEqual(result.miss_reason, "LATEST_HUMAN_REVIEW_DOES_NOT_MATCH")
+
+    def test_ambiguous_exact_match_fails_closed(self):
+        conn = database()
+        conn.execute("INSERT INTO tote_loops VALUES ('l2','Repair 2','Maintenance','repair object','is broken','works',2,'CANONICAL')")
+        conn.execute("INSERT INTO tote_loop_elements VALUES ('l2','ACTION',0,'repair widget','repair widget',1,NULL)")
+        result = lookup_loop(conn, domain="Maintenance", action="repair widget", schema_version=SCHEMA_VERSION)
+        self.assertEqual(result.status, "CACHE_MISS")
+        self.assertEqual(result.miss_reason, "AMBIGUOUS_EXACT_MATCH")
+
+    def test_partial_migration_fails_closed(self):
+        conn = database()
+        conn.execute("DROP TABLE loop_human_reviews")
+        result = lookup_loop(conn, domain="Maintenance", action="repair widget", schema_version=SCHEMA_VERSION)
+        self.assertEqual(result.status, "CACHE_MISS")
+        self.assertEqual(result.miss_reason, "VALIDATION_SCHEMA_UNAVAILABLE")
+
+    def test_digest_and_utf8_decode_failures_fail_closed(self):
+        for mutation in (
+            "UPDATE tote_loops SET objective=X'FF' WHERE loop_id='l1'",
+            "UPDATE tote_loops SET objective=CAST(X'80' AS TEXT) WHERE loop_id='l1'",
+        ):
+            with self.subTest(mutation=mutation):
+                conn = database()
+                conn.execute(mutation)
+                result = lookup_loop(conn, domain="Maintenance", action="repair widget", schema_version=SCHEMA_VERSION)
+                self.assertEqual(result.status, "CACHE_MISS")
+                self.assertEqual(result.miss_reason, "DIGEST_RECOMPUTATION_FAILED")
 
 
     def test_cache_miss_handoff_has_b6_invariants_and_no_writeback(self):
