@@ -2,7 +2,7 @@
 
 ## Status
 
-Draft for owner review. Storage direction is approved: extend the existing TOTE SQLite database. This is a proposed additive model, not an applied migration. Preserve the current tables and deterministic JSON export until a reviewed migration and compatibility plan are approved.
+Owner-approved additive model for the existing TOTE SQLite database. Migration 002 and the corresponding fresh-build schema are merged in `nhartman000/T.O.T.E-loops`; the migration has not yet been applied to an existing database. Existing tables, seed records, and the legacy deterministic JSON export are preserved. Migration/conformance tests are deferred to the later test pass.
 
 Reference source: [`nhartman000/T.O.T.E-loops/schema.sql`](https://github.com/nhartman000/T.O.T.E-loops/blob/main/schema.sql). The current schema defines `modality_operators`, `gestalts`, `tote_loops`, `tote_steps`, and `loop_gestalts`.
 
@@ -25,8 +25,8 @@ Use foreign keys and uniqueness constraints for identifiers and relationships. S
 
 ## Population and admission flow
 
-1. B4 provides a domain identifier. B5 checks the local taxonomy and TOTE records.
-2. If taxonomy is missing, Google search supplies candidate subdomains, sub-subdomains, functions, and techniques. Store source URL, query, retrieval time, and evidence/hash. The exact source-ranking and acceptance rule remains an owner decision.
+1. B4 provides a canonical domain ID and action key. B5 reads `PRAGMA user_version` and requires version 2, then matches exact `domain_id` and `action_key`; ambiguous matches are cache misses.
+2. A Google/provider adapter may supply subdomain, sub-subdomain, function, and technique candidates with source URL, query, retrieval time, and content hash. Candidates remain unapproved until human review; live provider credentials and ranking/acceptance are not implemented.
 3. How-to text may yield technique and TOTE-loop candidates. Keep these as candidates until a human validates them; retain source provenance.
 4. The future web form looks up the hierarchy and technique, lets the contributor choose registered modality operators and enter loop action text (plus required actor/object-or-tool details), then records the submission as human-authored.
 5. Run automatic structural and invariant checks. A passing check means the record conforms to the declared schema and NYCH/TOTE invariants; it does not prove every action description is factually correct. The trusted B5 lookup/write service must recompute the versioned canonical digest on every hit and require it to match the latest PASS validation and any required human review; the status column alone is never a pass signal. Record the validator version, individual check results, and digest.
@@ -38,7 +38,7 @@ Owner-approved B5 integrity rule: `admission_status` is advisory. The trusted ru
 
 - Digest version: `NYCH-TOTE-LOOP-DIGEST-V1`.
 - Digest input prefix bytes: UTF-8 `NYCH-TOTE-LOOP-DIGEST\0v1\0`.
-- Payload is a JSON object with `schema_version`, `loop`, `steps`, `elements`, `taxonomy`, `sources`, `loop_gestalts`, `gestalts`, and `modality_operators` sections.
+- Payload is a JSON object with integer `schema_version` read from SQLite `PRAGMA user_version`, plus `loop`, `steps`, `elements`, `taxonomy`, `sources`, `loop_gestalts`, `gestalts`, and `modality_operators` sections.
 - Include all `tote_loops` fields; all `tote_steps` fields sorted by `step_index`; all `tote_loop_elements` sorted by `(element_role, element_index)`; and all `loop_taxonomy` links sorted by `(relationship_role, node_id)`.
 - Taxonomy payload includes linked taxonomy nodes, their full `CONTAINS` ancestor paths and edges, relevant `COMMONALITY` edges, and source associations/metadata. Sort rows by stable IDs and relationship keys.
 - Include loop sources and their source metadata; linked `loop_gestalts` plus full referenced `gestalts` records; and all referenced `modality_operators` records. Include source URL/query/time/hash and rights metadata, never raw prompt text or copied how-to bodies.
@@ -62,14 +62,14 @@ How-to-derived candidates additionally require an approved human review record b
 
 ## Decisions still open
 
-- Exact SQL migration layout and schema version strategy.
-- Whether taxonomy nodes are admitted directly from search or remain candidates until an acceptance rule passes.
-- Canonical normalization and deterministic action matching key.
-- Whether action/role fields belong in a dedicated relation or a revised `tote_steps` interface in a later schema version.
+- Google provider credentials, query generation, source ranking, and candidate acceptance; search results remain unapproved until human review.
+- Upstream B4→B5 interface for supplying canonical domain IDs, action keys, and narrative/provenance envelopes.
 - Contributor identity and privacy model for the web interface.
-- Versioned validator rules, failure behavior, who may admit a passing entry.
-- Runtime adapter/API endpoint and database write permissions.
+- Versioned validator rules, failure behavior, and who may admit a passing entry.
+- Runtime write endpoint and database write permissions.
+
+Approved: migration-recorded schema version (`PRAGMA user_version=2`), exact canonical domain/action matching with ambiguity as a cache miss, and versioned GST JSON V1 contract.
 
 ## Compatibility requirement
 
-Do not change `schema.sql`, `src/build_db.py`, current seed data, or exported field meanings until this proposal is reviewed, an additive migration is prepared, and compatibility behavior is specified. The existing SQLite schema remains the reference source for current records.
+Migration 002 and the additive V2 tables/triggers are now part of `T.O.T.E-loops` main. `schema.sql` creates version 2 for fresh builds; `migrations/apply_002.py` applies to existing databases at user_version 0 or 1, no-ops at 2, and refuses unsupported/newer versions. It preserves current seed records and legacy export fields. Existing database application and conformance tests are deferred.
