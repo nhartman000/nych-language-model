@@ -106,6 +106,28 @@ CREATE TABLE IF NOT EXISTS loop_validation_runs (
 );
 CREATE INDEX IF NOT EXISTS idx_loop_validation_latest ON loop_validation_runs(loop_id, validated_at);
 
+CREATE TRIGGER IF NOT EXISTS trg_taxonomy_node_identity_immutable
+BEFORE UPDATE OF node_id, node_type ON taxonomy_nodes
+BEGIN
+    SELECT RAISE(ABORT, 'taxonomy node identity/type is immutable; create a replacement node');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_invalidate_admissions_on_node_source_insert
+AFTER INSERT ON taxonomy_node_sources BEGIN
+    UPDATE loop_admission SET admission_status='CANDIDATE', verified_loop_sha256=NULL,
+        human_review_status=CASE WHEN origin='HOW_TO_EXTRACTED' THEN 'PENDING' ELSE human_review_status END, updated_at=CURRENT_TIMESTAMP;
+END;
+CREATE TRIGGER IF NOT EXISTS trg_invalidate_admissions_on_node_source_update
+AFTER UPDATE ON taxonomy_node_sources BEGIN
+    UPDATE loop_admission SET admission_status='CANDIDATE', verified_loop_sha256=NULL,
+        human_review_status=CASE WHEN origin='HOW_TO_EXTRACTED' THEN 'PENDING' ELSE human_review_status END, updated_at=CURRENT_TIMESTAMP;
+END;
+CREATE TRIGGER IF NOT EXISTS trg_invalidate_admissions_on_node_source_delete
+AFTER DELETE ON taxonomy_node_sources BEGIN
+    UPDATE loop_admission SET admission_status='CANDIDATE', verified_loop_sha256=NULL,
+        human_review_status=CASE WHEN origin='HOW_TO_EXTRACTED' THEN 'PENDING' ELSE human_review_status END, updated_at=CURRENT_TIMESTAMP;
+END;
+
 -- Enforce valid immediate hierarchy transitions and prevent containment cycles.
 CREATE TRIGGER IF NOT EXISTS trg_taxonomy_edges_validate_insert
 BEFORE INSERT ON taxonomy_edges
