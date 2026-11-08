@@ -4,6 +4,7 @@ import unittest
 
 from nych_language_model.pipeline.gst_context import (
     DIGEST_VERSION,
+    REQUIRED_PAYLOAD_TABLES,
     SearchResult,
     cache_miss_handoff,
     loop_digest,
@@ -105,27 +106,35 @@ class GSTContextTests(unittest.TestCase):
                 self.assertEqual(result.miss_reason, "ADMISSION_DIGEST_DOES_NOT_MATCH")
 
 
-    def test_how_to_candidate_requires_latest_approved_review_for_digest(self):
-        conn = database(origin="HOW_TO_EXTRACTED", review=False)
-        result = lookup_loop(conn, domain="Maintenance", action="repair widget", schema_version=SCHEMA_VERSION)
-        self.assertEqual(result.status, "CACHE_MISS")
-        self.assertEqual(result.miss_reason, "LATEST_HUMAN_REVIEW_DOES_NOT_MATCH")
+    def test_latest_approved_review_is_required_for_every_origin(self):
+        for origin in ("SEED", "HOW_TO_EXTRACTED", "OTHER", "UNKNOWN_ORIGIN"):
+            with self.subTest(origin=origin):
+                conn = database(origin=origin, review=False)
+                result = lookup_loop(conn, domain="Maintenance", action="repair widget", schema_version=SCHEMA_VERSION)
+                self.assertEqual(result.status, "CACHE_MISS")
+                self.assertEqual(result.miss_reason, "LATEST_HUMAN_REVIEW_DOES_NOT_MATCH")
 
+        # Changing origin cannot bypass a missing review.
+        conn = database(origin="HOW_TO_EXTRACTED", review=False)
         conn.execute("UPDATE loop_admission SET origin='SEED' WHERE loop_id='l1'")
         conn.commit()
-        # Admission state is not consulted as the authority for a verified hit.
-        self.assertEqual(lookup_loop(conn, domain="Maintenance", action="repair widget", schema_version=SCHEMA_VERSION).status, "HIT")
+        self.assertEqual(
+            lookup_loop(conn, domain="Maintenance", action="repair widget", schema_version=SCHEMA_VERSION).miss_reason,
+            "LATEST_HUMAN_REVIEW_DOES_NOT_MATCH",
+        )
 
     def test_latest_rejected_human_review_invalidates_earlier_approval(self):
-        conn = database(origin="HOW_TO_EXTRACTED")
-        digest = loop_digest(conn, "l1", schema_version=SCHEMA_VERSION)
-        conn.execute(
-            "INSERT INTO loop_human_reviews VALUES ('r2','l1','reviewer',?,?, 'REJECTED','2026-02-01T00:00:00Z')",
-            (digest, DIGEST_VERSION),
-        )
-        result = lookup_loop(conn, domain="Maintenance", action="repair widget", schema_version=SCHEMA_VERSION)
-        self.assertEqual(result.status, "CACHE_MISS")
-        self.assertEqual(result.miss_reason, "LATEST_HUMAN_REVIEW_DOES_NOT_MATCH")
+        for origin in ("HOW_TO_EXTRACTED", "OTHER", "UNKNOWN_ORIGIN"):
+            with self.subTest(origin=origin):
+                conn = database(origin=origin)
+                digest = loop_digest(conn, "l1", schema_version=SCHEMA_VERSION)
+                conn.execute(
+                    "INSERT INTO loop_human_reviews VALUES ('r2','l1','reviewer',?,?, 'REJECTED','2026-02-01T00:00:00Z')",
+                    (digest, DIGEST_VERSION),
+                )
+                result = lookup_loop(conn, domain="Maintenance", action="repair widget", schema_version=SCHEMA_VERSION)
+                self.assertEqual(result.status, "CACHE_MISS")
+                self.assertEqual(result.miss_reason, "LATEST_HUMAN_REVIEW_DOES_NOT_MATCH")
 
     def test_ambiguous_exact_match_fails_closed(self):
         conn = database()
@@ -141,6 +150,14 @@ class GSTContextTests(unittest.TestCase):
         result = lookup_loop(conn, domain="Maintenance", action="repair widget", schema_version=SCHEMA_VERSION)
         self.assertEqual(result.status, "CACHE_MISS")
         self.assertEqual(result.miss_reason, "VALIDATION_SCHEMA_UNAVAILABLE")
+
+    def test_each_canonical_payload_table_is_required(self):
+        for table in sorted(REQUIRED_PAYLOAD_TABLES):
+            with self.subTest(table=table):
+                conn = database()
+                conn.execute(f'DROP TABLE "{table}"')
+                result = lookup_loop(conn, domain="Maintenance", action="repair widget", schema_version=SCHEMA_VERSION)
+                self.assertEqual(result.status, "CACHE_MISS")
 
     def test_digest_and_utf8_decode_failures_fail_closed(self):
         for mutation in (
