@@ -79,6 +79,7 @@ CREATE TABLE IF NOT EXISTS loop_admission (
     human_review_status TEXT NOT NULL DEFAULT 'NOT_REQUIRED' CHECK (human_review_status IN ('NOT_REQUIRED','PENDING','APPROVED','REJECTED')),
     admission_status TEXT NOT NULL DEFAULT 'CANDIDATE' CHECK (admission_status IN ('CANDIDATE','ADMITTED','REJECTED','RETIRED')),
     contributor_ref TEXT,
+    verified_loop_sha256 TEXT CHECK (verified_loop_sha256 IS NULL OR (length(verified_loop_sha256) = 64 AND verified_loop_sha256 NOT GLOB '*[^0-9a-f]*')),
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -87,6 +88,7 @@ CREATE TABLE IF NOT EXISTS loop_human_reviews (
     loop_id TEXT NOT NULL REFERENCES tote_loops(loop_id) ON DELETE CASCADE,
     source_id TEXT REFERENCES taxonomy_sources(source_id) ON DELETE RESTRICT,
     reviewer_ref TEXT NOT NULL,
+    loop_sha256 TEXT NOT NULL CHECK (length(loop_sha256) = 64 AND loop_sha256 NOT GLOB '*[^0-9a-f]*'),
     outcome TEXT NOT NULL CHECK (outcome IN ('APPROVED','REJECTED')),
     review_note TEXT NOT NULL DEFAULT '',
     reviewed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -130,7 +132,7 @@ BEGIN
     ) THEN RAISE(ABORT, 'taxonomy containment cycle') END;
 END;
 
--- Require loop taxonomy roles to match node types.
+-- Require loop taxonomy roles to match node types on both inserts and updates.
 CREATE TRIGGER IF NOT EXISTS trg_loop_taxonomy_role_insert
 BEFORE INSERT ON loop_taxonomy
 WHEN NOT EXISTS (SELECT 1 FROM taxonomy_nodes n WHERE n.node_id = NEW.node_id AND n.node_type = NEW.relationship_role)
@@ -138,12 +140,35 @@ BEGIN
     SELECT RAISE(ABORT, 'loop taxonomy role does not match taxonomy node type');
 END;
 
+CREATE TRIGGER IF NOT EXISTS trg_loop_taxonomy_role_update
+BEFORE UPDATE OF node_id, relationship_role ON loop_taxonomy
+WHEN NOT EXISTS (SELECT 1 FROM taxonomy_nodes n WHERE n.node_id = NEW.node_id AND n.node_type = NEW.relationship_role)
+BEGIN
+    SELECT RAISE(ABORT, 'loop taxonomy role does not match taxonomy node type');
+END;
+
+-- Force hierarchy edges to be deleted and reinserted so insertion checks cannot be bypassed.
+
 -- Admission requires a passing automatic validation record; how-to-derived loops also require human review.
 CREATE TRIGGER IF NOT EXISTS trg_loop_admission_validate_insert
 BEFORE INSERT ON loop_admission
 WHEN NEW.admission_status = 'ADMITTED' AND (
-    NOT EXISTS (SELECT 1 FROM loop_validation_runs v WHERE v.loop_id = NEW.loop_id AND v.result = 'PASS')
-    OR (NEW.origin = 'HOW_TO_EXTRACTED' AND NEW.human_review_status <> 'APPROVED')
+    NEW.verified_loop_sha256 IS NULL
+    OR NOT EXISTS (
+        SELECT 1 FROM loop_validation_runs v
+        WHERE v.loop_id = NEW.loop_id AND v.result = 'PASS'
+          AND v.loop_sha256 = NEW.verified_loop_sha256
+          AND v.validation_id = (SELECT v2.validation_id FROM loop_validation_runs v2 WHERE v2.loop_id = NEW.loop_id ORDER BY v2.validated_at DESC, v2.validation_id DESC LIMIT 1)
+    )
+    OR (NEW.origin = 'HOW_TO_EXTRACTED' AND (
+        NEW.human_review_status <> 'APPROVED'
+        OR NOT EXISTS (
+            SELECT 1 FROM loop_human_reviews r
+            WHERE r.loop_id = NEW.loop_id AND r.outcome = 'APPROVED'
+              AND r.loop_sha256 = NEW.verified_loop_sha256
+              AND r.review_id = (SELECT r2.review_id FROM loop_human_reviews r2 WHERE r2.loop_id = NEW.loop_id ORDER BY r2.reviewed_at DESC, r2.review_id DESC LIMIT 1)
+        )
+    ))
 )
 BEGIN
     SELECT RAISE(ABORT, 'admission requires passing automatic validation and required human review');
@@ -159,6 +184,139 @@ BEGIN
     SELECT RAISE(ABORT, 'admission requires passing automatic validation and required human review');
 END;
 
+CREATE TRIGGER IF NOT EXISTS trg_taxonomy_edges_no_update
+BEFORE UPDATE ON taxonomy_edges
+BEGIN
+    SELECT RAISE(ABORT, 'delete and reinsert taxonomy edges to revalidate hierarchy');
+END;
+
+-- Mutating any loop or linked taxonomy/provenance invalidates its prior admission and digest.
+CREATE TRIGGER IF NOT EXISTS trg_invalidate_loop_on_loop_update
+AFTER UPDATE ON tote_loops
+BEGIN
+    UPDATE loop_admission SET admission_status='CANDIDATE', verified_loop_sha256=NULL,
+        human_review_status=CASE WHEN origin='HOW_TO_EXTRACTED' THEN 'PENDING' ELSE human_review_status END, updated_at=CURRENT_TIMESTAMP
+    WHERE loop_id IN (OLD.loop_id, NEW.loop_id);
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_invalidate_loop_on_step_insert
+AFTER INSERT ON tote_steps BEGIN
+    UPDATE loop_admission SET admission_status='CANDIDATE', verified_loop_sha256=NULL,
+        human_review_status=CASE WHEN origin='HOW_TO_EXTRACTED' THEN 'PENDING' ELSE human_review_status END, updated_at=CURRENT_TIMESTAMP
+    WHERE loop_id=NEW.loop_id;
+END;
+CREATE TRIGGER IF NOT EXISTS trg_invalidate_loop_on_step_update
+AFTER UPDATE ON tote_steps BEGIN
+    UPDATE loop_admission SET admission_status='CANDIDATE', verified_loop_sha256=NULL,
+        human_review_status=CASE WHEN origin='HOW_TO_EXTRACTED' THEN 'PENDING' ELSE human_review_status END, updated_at=CURRENT_TIMESTAMP
+    WHERE loop_id IN (OLD.loop_id, NEW.loop_id);
+END;
+CREATE TRIGGER IF NOT EXISTS trg_invalidate_loop_on_step_delete
+AFTER DELETE ON tote_steps BEGIN
+    UPDATE loop_admission SET admission_status='CANDIDATE', verified_loop_sha256=NULL,
+        human_review_status=CASE WHEN origin='HOW_TO_EXTRACTED' THEN 'PENDING' ELSE human_review_status END, updated_at=CURRENT_TIMESTAMP
+    WHERE loop_id=OLD.loop_id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_invalidate_loop_on_element_insert
+AFTER INSERT ON tote_loop_elements BEGIN
+    UPDATE loop_admission SET admission_status='CANDIDATE', verified_loop_sha256=NULL,
+        human_review_status=CASE WHEN origin='HOW_TO_EXTRACTED' THEN 'PENDING' ELSE human_review_status END, updated_at=CURRENT_TIMESTAMP
+    WHERE loop_id=NEW.loop_id;
+END;
+CREATE TRIGGER IF NOT EXISTS trg_invalidate_loop_on_element_update
+AFTER UPDATE ON tote_loop_elements BEGIN
+    UPDATE loop_admission SET admission_status='CANDIDATE', verified_loop_sha256=NULL,
+        human_review_status=CASE WHEN origin='HOW_TO_EXTRACTED' THEN 'PENDING' ELSE human_review_status END, updated_at=CURRENT_TIMESTAMP
+    WHERE loop_id IN (OLD.loop_id, NEW.loop_id);
+END;
+CREATE TRIGGER IF NOT EXISTS trg_invalidate_loop_on_element_delete
+AFTER DELETE ON tote_loop_elements BEGIN
+    UPDATE loop_admission SET admission_status='CANDIDATE', verified_loop_sha256=NULL,
+        human_review_status=CASE WHEN origin='HOW_TO_EXTRACTED' THEN 'PENDING' ELSE human_review_status END, updated_at=CURRENT_TIMESTAMP
+    WHERE loop_id=OLD.loop_id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_invalidate_loop_on_taxonomy_link_insert
+AFTER INSERT ON loop_taxonomy BEGIN
+    UPDATE loop_admission SET admission_status='CANDIDATE', verified_loop_sha256=NULL,
+        human_review_status=CASE WHEN origin='HOW_TO_EXTRACTED' THEN 'PENDING' ELSE human_review_status END, updated_at=CURRENT_TIMESTAMP
+    WHERE loop_id=NEW.loop_id;
+END;
+CREATE TRIGGER IF NOT EXISTS trg_invalidate_loop_on_taxonomy_link_update
+AFTER UPDATE ON loop_taxonomy BEGIN
+    UPDATE loop_admission SET admission_status='CANDIDATE', verified_loop_sha256=NULL,
+        human_review_status=CASE WHEN origin='HOW_TO_EXTRACTED' THEN 'PENDING' ELSE human_review_status END, updated_at=CURRENT_TIMESTAMP
+    WHERE loop_id IN (OLD.loop_id, NEW.loop_id);
+END;
+CREATE TRIGGER IF NOT EXISTS trg_invalidate_loop_on_taxonomy_link_delete
+AFTER DELETE ON loop_taxonomy BEGIN
+    UPDATE loop_admission SET admission_status='CANDIDATE', verified_loop_sha256=NULL,
+        human_review_status=CASE WHEN origin='HOW_TO_EXTRACTED' THEN 'PENDING' ELSE human_review_status END, updated_at=CURRENT_TIMESTAMP
+    WHERE loop_id=OLD.loop_id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_invalidate_loop_on_source_link_insert
+AFTER INSERT ON loop_sources BEGIN
+    UPDATE loop_admission SET admission_status='CANDIDATE', verified_loop_sha256=NULL,
+        human_review_status=CASE WHEN origin='HOW_TO_EXTRACTED' THEN 'PENDING' ELSE human_review_status END, updated_at=CURRENT_TIMESTAMP
+    WHERE loop_id=NEW.loop_id;
+END;
+CREATE TRIGGER IF NOT EXISTS trg_invalidate_loop_on_source_link_update
+AFTER UPDATE ON loop_sources BEGIN
+    UPDATE loop_admission SET admission_status='CANDIDATE', verified_loop_sha256=NULL,
+        human_review_status=CASE WHEN origin='HOW_TO_EXTRACTED' THEN 'PENDING' ELSE human_review_status END, updated_at=CURRENT_TIMESTAMP
+    WHERE loop_id IN (OLD.loop_id, NEW.loop_id);
+END;
+CREATE TRIGGER IF NOT EXISTS trg_invalidate_loop_on_source_link_delete
+AFTER DELETE ON loop_sources BEGIN
+    UPDATE loop_admission SET admission_status='CANDIDATE', verified_loop_sha256=NULL,
+        human_review_status=CASE WHEN origin='HOW_TO_EXTRACTED' THEN 'PENDING' ELSE human_review_status END, updated_at=CURRENT_TIMESTAMP
+    WHERE loop_id=OLD.loop_id;
+END;
+
+-- Taxonomy edits conservatively invalidate every admission because they can alter GST ancestry.
+CREATE TRIGGER IF NOT EXISTS trg_invalidate_admissions_on_taxonomy_edge_insert
+AFTER INSERT ON taxonomy_edges BEGIN
+    UPDATE loop_admission SET admission_status='CANDIDATE', verified_loop_sha256=NULL,
+        human_review_status=CASE WHEN origin='HOW_TO_EXTRACTED' THEN 'PENDING' ELSE human_review_status END, updated_at=CURRENT_TIMESTAMP;
+END;
+CREATE TRIGGER IF NOT EXISTS trg_invalidate_admissions_on_taxonomy_edge_delete
+AFTER DELETE ON taxonomy_edges BEGIN
+    UPDATE loop_admission SET admission_status='CANDIDATE', verified_loop_sha256=NULL,
+        human_review_status=CASE WHEN origin='HOW_TO_EXTRACTED' THEN 'PENDING' ELSE human_review_status END, updated_at=CURRENT_TIMESTAMP;
+END;
+CREATE TRIGGER IF NOT EXISTS trg_invalidate_admissions_on_taxonomy_node_update
+AFTER UPDATE ON taxonomy_nodes BEGIN
+    UPDATE loop_admission SET admission_status='CANDIDATE', verified_loop_sha256=NULL,
+        human_review_status=CASE WHEN origin='HOW_TO_EXTRACTED' THEN 'PENDING' ELSE human_review_status END, updated_at=CURRENT_TIMESTAMP;
+END;
+CREATE TRIGGER IF NOT EXISTS trg_invalidate_admissions_on_source_update
+AFTER UPDATE ON taxonomy_sources BEGIN
+    UPDATE loop_admission SET admission_status='CANDIDATE', verified_loop_sha256=NULL,
+        human_review_status=CASE WHEN origin='HOW_TO_EXTRACTED' THEN 'PENDING' ELSE human_review_status END, updated_at=CURRENT_TIMESTAMP;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_loop_human_reviews_record_admission_state
+AFTER INSERT ON loop_human_reviews BEGIN
+    UPDATE loop_admission SET human_review_status=NEW.outcome, admission_status=CASE WHEN NEW.outcome='REJECTED' THEN 'REJECTED' ELSE 'CANDIDATE' END,
+        verified_loop_sha256=NULL, updated_at=CURRENT_TIMESTAMP WHERE loop_id=NEW.loop_id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_loop_validation_runs_record_state
+AFTER INSERT ON loop_validation_runs WHEN NEW.result <> 'PASS' BEGIN
+    UPDATE loop_admission SET admission_status='CANDIDATE', verified_loop_sha256=NULL, updated_at=CURRENT_TIMESTAMP
+    WHERE loop_id=NEW.loop_id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_loop_validation_runs_immutable_update
+BEFORE UPDATE ON loop_validation_runs BEGIN SELECT RAISE(ABORT, 'validation runs are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS trg_loop_validation_runs_immutable_delete
+BEFORE DELETE ON loop_validation_runs BEGIN SELECT RAISE(ABORT, 'validation runs are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS trg_loop_human_reviews_immutable_update
+BEFORE UPDATE ON loop_human_reviews BEGIN SELECT RAISE(ABORT, 'human reviews are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS trg_loop_human_reviews_immutable_delete
+BEFORE DELETE ON loop_human_reviews BEGIN SELECT RAISE(ABORT, 'human reviews are append-only'); END;
 -- The application validator must recompute the loop digest before each admission.
 CREATE VIEW IF NOT EXISTS gst_loop_invariant_summary AS
 SELECT
