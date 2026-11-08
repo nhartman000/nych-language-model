@@ -1,6 +1,6 @@
 # Builder 5 GST Context — V2 Candidate
 
-Status: candidate for independent inspection on branch `builder-05/gst-context-v2`. The TOTE schema migration remains a draft; no change was made to the T.O.T.E-loops repository.
+Status: candidate for independent inspection on branch `builder-05/gst-context-v2`. The TOTE schema migration remains a draft on this branch; the T.O.T.E-loops repository change is being handled separately.
 
 ## Approved contract implemented
 
@@ -20,7 +20,7 @@ The previously reviewed integrity boundary remains: only exact canonical payload
 
 ## Remaining boundaries
 
-- Migration 002 is still draft/unapplied pending the separate approval; current production TOTE DBs remain schema version 0/legacy and B5 fails closed until migrated.
+- Migration 002 remains unapplied to T.O.T.E-loops in this branch; the production TOTE database remains legacy and B5 fails closed until its versioned migration is integrated.
 - The caller/upstream B4 must produce canonical domain IDs, action keys, narrative fields and provenance spans.
 - Live Google integration, search ranking/acceptance, taxonomy extraction/admission, and end-to-end B4→B5→B6 wiring are not implemented.
 - GST version is V1; contract changes require a new schema version.
