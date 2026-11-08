@@ -16,8 +16,8 @@ Reference source: [`nhartman000/T.O.T.E-loops/schema.sql`](https://github.com/nh
 | `taxonomy_node_sources` | Evidence links for taxonomy nodes | `node_id`, `source_id`, `evidence_note` |
 | `loop_taxonomy` | Connect reusable TOTE loops to domain and technique nodes | `loop_id`, `node_id`, `relationship_role` |
 | `tote_loop_elements` | Represent actor/action/object/tool elements without changing positional inserts into existing `tote_steps` | `loop_id`, `element_role`, `element_index`, `element_text`, optional `normalized_key`, optional `step_index`; modality continues to reference `modality_operators` through `tote_steps.operator_id` |
-| `loop_admission` | Distinguish seed, extracted, and human-authored entries and their review/verification state | `loop_id`, `origin`, `human_review_status`, `admission_status`, `contributor_ref` |
-| `loop_human_reviews` | Human review record for how-to-derived loop candidates | `review_id`, `loop_id`, `source_id`, `reviewer_ref`, `outcome`, `review_note`, `reviewed_at` | 
+| `loop_sources` | Link loop records to source material and submissions | `loop_id`, `source_id`, `source_role` |\n| `loop_admission` | Distinguish seed, extracted, and human-authored entries and their review/verification state | `loop_id`, `origin`, `human_review_status`, `admission_status`, `contributor_ref`, `verified_loop_sha256` |
+| `loop_human_reviews` | Human review record for how-to-derived loop candidates | `review_id`, `loop_id`, `source_id`, `reviewer_ref`, `loop_sha256`, `outcome`, `review_note`, `reviewed_at` | 
 | `loop_validation_runs` | Auditable automatic checks | `validation_id`, `loop_id`, `validator_version`, `result`, `checks_json`, `loop_sha256`, `validated_at` |
 
 Use foreign keys and uniqueness constraints for identifiers and relationships. Search-result metadata and hashes should be retained; full source text need not be copied into the database. Existing `tote_loops.domain` and `tote_steps` remain readable during transition.
@@ -41,7 +41,7 @@ Use foreign keys and uniqueness constraints for identifiers and relationships. S
 - Required provenance and a stable content digest for extracted or search-derived records.
 - Deterministic validation output tied to the exact loop digest.
 
-How-to-derived candidates additionally require an approved human review record before canonical admission. Human-authored entries require a passing automatic validation record before admission; automatic verification does not masquerade as human validation. The migration's admission triggers enforce these admission prerequisites, while the runtime validator must recompute the loop digest before admission.
+How-to-derived candidates additionally require an approved human review record before canonical admission. Human-authored entries require a passing automatic validation record before admission; automatic verification does not masquerade as human validation. The migration's admission triggers require a PASS validation for the exact stored digest and an approved human-review record for how-to-derived loops. Content or linked-taxonomy changes invalidate prior admission. The runtime validator must recompute the loop digest before admission.
 
 ## Decisions still open
 
