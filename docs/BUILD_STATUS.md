@@ -2,9 +2,9 @@
 
 - B1 Ingest: candidate source added; owner policy approved; independent inspection pending.
 - B3 Trace identity: bounded implementation PASS; Inspector 3 independently verified 14/14 focused tests; integration checks remain.
-- B2 and B4–B11: implementation/inspection remain gated by module contracts.
-- New module separation approved: B5 GST Context Assembly and deterministic action/domain lookup; B6 NYCH symbolization; downstream modules renumbered through B11 Training/Evaluation.
-- GST architecture: TOTE schema source is identified at `nhartman000/T.O.T.E-loops/schema.sql`. Same-database additive extension is approved. Google-search hierarchy enrichment, human validation of how-to-derived loops, and future human authoring with automatic invariant checks are approved. The private SQL migration is still a draft and was rated INTERMEDIATE by Inspector 5: B5 must recompute the canonical loop digest on every lookup hit and bind it to the latest PASS and required human review; `admission_status` alone is not trusted. Canonical digest v1 is approved and documented. Runtime adapter, match rule, verifier implementation, and write policy remain open.
-- No new module implementation, database, corpus weights, or neural weights are claimed by this restructuring.
+- B5 GST context: V2 candidate/implementation is present; its documented independent review and migration boundaries still apply.
+- B7–B10 neural core: candidate implementation added on branch `wire/decoder-core-smoke-v1`; synthetic forward/backward smoke and focused tests are included. Independent inspection and GitSON wiring remain pending.
+- B2 tokenizer/vocabulary, B4 domain resolver, B6 symbolization, B11 corpus training/evaluation: not implemented in this candidate.
+- No trained NYCH weights or corpus-derived vocabulary are claimed by the neural-core smoke.
 - Integration and GitSON wiring require independent Inspector PASS evidence and digest-bound host validation.
 - Prompt privacy: raw text is memory-only; QSON and reports may record digest and metadata but never the prompt.
