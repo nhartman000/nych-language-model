@@ -6,8 +6,18 @@ build-backend = "setuptools.build_meta"
 name = "nych-language-model"
 version = "0.1.0"
 description = "Inspectably built NYCH language-model proof of concept"
-requires-python = ">=3.11"
-dependencies = []
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "torch==2.7.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.3,<9",
+]
+
+[project.scripts]
+nych-lm-smoke = "nych_language_model.model.smoke:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
